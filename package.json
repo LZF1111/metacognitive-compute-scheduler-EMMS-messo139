@@ -1,0 +1,38 @@
+{
+  "name": "metacognitive-compute-scheduler",
+  "version": "0.1.0",
+  "description": "An MCP service that decides how much compute each agent step deserves (System 1 vs System 2) and learns that judgment from experience. EMMS compromise-in-competition mapped onto the dual-process boundary.",
+  "type": "module",
+  "bin": {
+    "conscious-scheduler": "server.mjs"
+  },
+  "main": "consciousCore.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "smoke": "node smoke.mjs",
+    "complex": "node complexTask.mjs",
+    "tests": "node answerTests.mjs",
+    "figdata": "node figures/gen_fig_data.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "llm-agent",
+    "metacognition",
+    "compute-routing",
+    "dual-process",
+    "system1-system2",
+    "emms",
+    "test-time-compute"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "LZF1111",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LZF1111/metacognitive-compute-scheduler.git"
+  },
+  "dependencies": {}
+}

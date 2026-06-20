@@ -1,0 +1,13 @@
+# Node
+node_modules/
+
+# Persisted prototype libraries generated at runtime (keep the dir, ignore contents)
+store/*.json
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
