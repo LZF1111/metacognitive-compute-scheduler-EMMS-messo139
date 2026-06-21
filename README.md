@@ -54,7 +54,45 @@ The caller only ever computes four task-agnostic scalars (all in `[0,1]`):
 
 ---
 
-## 3. What is EMMS, and exactly where is it used here / EMMS 是什么，到底用在了哪里
+## 3. Design philosophy: how it is both fast AND accurate / 设计哲学：怎么做到又快又准
+
+The usual assumption is a **speed–accuracy trade-off**: go fast (cheap) and you lose accuracy; stay accurate and you pay (slow/expensive). This scheduler's whole point is that **for long-horizon tasks the trade-off is false** — you can be faster *and* more accurate at the same time, because the waste and the errors come from the **same root cause**: spending the same amount of compute on every step.
+
+通常的假设是**速度与准确率不可兼得**：求快（便宜）就丢准；求准就得慢/贵。本调度器的核心主张是：**在长程任务上这个取舍是个伪命题**——你可以同时更快*且*更准，因为"浪费"和"出错"其实来自**同一个病根**：对每一步都花同样多的算力。
+
+### 3.1 Why "same compute everywhere" loses on both axes / 为什么"每步一样使劲"两头都输
+
+| failure mode | what it costs | who suffers from it |
+|---|---|---|
+| **over-thinking** an easy step | wasted tokens/time → **slow & expensive** | always-full-power |
+| **under-thinking** a critical step | wrong answer → must redo → **slow & wrong** | always-cheap |
+| **a frozen threshold** | right at first, then the task changes and it keeps misfiring | hand-written skill / static router |
+| **deep-thinking on a dirty context** | the model gets *more* lost, not less → **slow & wrong** | everyone who ignores context pollution |
+
+Note the punchline: over-thinking hurts **speed**, under-thinking hurts **accuracy**, and they are the *same decision made wrong in opposite directions*. Fix the decision and both improve together.
+
+关键在最后一句：过度深思伤的是**速度**，深思不足伤的是**准确率**，而它们是**同一个决策朝两个方向做错**。把这个决策做对，快和准就一起变好。
+
+### 3.2 The three design moves that buy "fast AND accurate" / 让"又快又准"成立的三个设计动作
+
+1. **Spend compute where it pays (accuracy without waste).** Cheap steps go System 1, pivotal steps go System 2. You stop wasting deliberation on easy steps (→ faster) *and* stop starving the steps that actually decide success (→ more accurate). This is the EMMS *compromise in competition* (§4): economy and robustness bid per step instead of one global setting.
+   **把算力花在刀刃上（准而不浪费）**：便宜步走 System 1，关键步走 System 2。既不再把深思浪费在简单步上（→更快），也不再亏待真正决定成败的步（→更准）。这就是 §4 的 EMMS 竞争中协调：经济与稳健逐步竞价，而非一个全局档位。
+
+2. **Keep the context clean (speed compounds into accuracy).** Every deep call pollutes the context window; a dirty context makes *later* steps both slower and more error-prone (*"the more it thinks, the more lost it gets"*). By pricing pollution into the cost (`ecoCost = c + λρ`), the scheduler thinks deeply *less often but at the right moments*, so the context stays clean and late-task accuracy holds up. Frugality here is not just cheaper — it directly **protects accuracy on long tasks**.
+   **保持上下文干净（省出来的是准）**：每次深思都会污染上下文窗口；脏上下文让*后续*步又慢又容易错（"越想越乱"）。把污染计入代价（`ecoCost = c + λρ`），调度器就**更少但更准时地**深思，上下文保持干净，长程后段准确率不塌。这里的"省"不只是便宜，而是**直接保护了长任务的准确率**。
+
+3. **Notice when the task changes (stay accurate over time).** A frozen rule is accurate only until the task shifts, then it silently keeps misfiring. The scheduler watches **surprise**; when the active prototype stops matching mid-task (`sim < 0.7`) it ignites, re-examines, and switches prototype — recovering accuracy *online* instead of locking up.
+   **察觉任务变了（让"准"持续）**：写死的规则只在任务不变时准，一旦任务中途变性就默默持续误判。调度器盯着**惊讶**；当活跃原型中途不再匹配（`sim < 0.7`）就点燃、重审、切换原型——*在线*恢复准确率，而不是锁死。
+
+### 3.3 In one sentence / 一句话
+
+> Fast comes from **not over-thinking easy steps and keeping the context clean**; accurate comes from **reserving deliberation for the steps that decide success and re-examining when the task changes** — and because both are the same per-step decision, optimizing it moves speed and accuracy in the *same* direction. The evidence in §7 shows exactly this: lower cost **and** fewer mishandled critical steps at once.
+>
+> 快，来自**不在简单步上过度深思、并保持上下文干净**；准，来自**把深思留给决定成败的步、并在任务变性时重审**——而因为两者是同一个逐步决策，把它做对就让快与准朝*同一个*方向移动。§6 的证据正是如此：成本更低**且**误判的关键步更少，二者同时达成。
+
+---
+
+## 4. What is EMMS, and exactly where is it used here / EMMS 是什么，到底用在了哪里
 
 **This is the part people find confusing, so read this first.** / **这一节专门讲清楚最容易看不懂的地方。**
 
@@ -98,7 +136,7 @@ These exact quantities are returned by `decide_step` as `rob_gain`, `eco_cost`, 
 
 ---
 
-## 4. The principle in formulas / 原理公式：one "ignition" = one auction
+## 5. The principle in formulas / 原理公式：one "ignition" = one auction
 
 Each step is one EMMS auction (see §3), expressed in formulas. / 每一步就是一场 §3 描述的 EMMS 竞价，用公式写出来如下。
 
@@ -131,7 +169,7 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 ---
 
-## 5. Why this can replace hand-written skills / 为什么能替代 skill
+## 6. Why this can replace hand-written skills / 为什么能替代 skill
 
 | | hand-written skill | this (prototype library) |
 |---|---|---|
@@ -142,7 +180,7 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 ---
 
-## 6. Evidence / 证据
+## 7. Evidence / 证据
 
 All figures use Times New Roman, 300 dpi. Reproduce with `figures/gen_fig_data.mjs` + `figures/make_figures.py`.
 
@@ -185,7 +223,7 @@ Paired t-test, ours vs router-online: Δ = 5.2 pt, **p = 7.5e-15**, Cohen's d = 
 
 ---
 
-## 7. Novelty / 创新性 (honest positioning)
+## 8. Novelty / 创新性 (honest positioning)
 
 What genuinely stands up at review:
 
@@ -201,7 +239,7 @@ Honest boundaries:
 
 ---
 
-## 8. Scientific anchors / 科学锚点
+## 9. Scientific anchors / 科学锚点
 
 | concept | source | role here |
 |---|---|---|
@@ -212,7 +250,7 @@ Honest boundaries:
 
 ---
 
-## 9. Install & run / 安装与使用
+## 10. Install & run / 安装与使用
 
 Requires Node.js ≥ 18. No build, no dependencies.
 
@@ -262,7 +300,7 @@ python figures/make_figures.py                          # -> *.png (Times New Ro
 
 ---
 
-## 10. Repository layout / 目录结构
+## 11. Repository layout / 目录结构
 
 ```
 server.mjs          zero-dep stdio JSON-RPC 2.0 MCP server (8 tools)
@@ -281,6 +319,6 @@ figures/
 
 ---
 
-## 11. License
+## 12. License
 
 MIT. *"Conscious" is used as a functional metaphor only; no claim of phenomenal consciousness is made.*
