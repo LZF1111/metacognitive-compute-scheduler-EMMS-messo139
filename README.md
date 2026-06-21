@@ -1,18 +1,16 @@
 # Metacognitive Compute Scheduler
 
 > An MCP (Model Context Protocol) service that decides **how much compute each step of an agent deserves** — cheap intuition (System 1) or expensive deliberation (System 2) — and learns that judgment from experience instead of hand-written rules.
->
-> 一个 MCP 工具：它不决定"做什么步骤"，只决定"**这一步该用多大算力**"——便宜糊弄（System 1）还是停下来深想（System 2）。而且这个判断是从经验里自己长出来的，不是写死的规则。
 
 Zero-dependency Node.js (ESM). Works with any MCP client (Claude Desktop / Cursor / VS Code / your own agent loop).
 
-> 中文算法详解见 [`ALGORITHM_zh.md`](ALGORITHM_zh.md)。
+> 🌏 **中文版见 [`README.zh.md`](README.zh.md)** · Full Chinese algorithm write-up: [`ALGORITHM_zh.md`](ALGORITHM_zh.md)
 
 ![overview](figures/overview.png)
 
 ---
 
-## 1. What it is / 是什么
+## 1. What it is
 
 Every agent running a long-horizon task is implicitly answering, at every step:
 
@@ -25,11 +23,9 @@ Most frameworks do one of two bad things:
 
 This project pulls that *"how much effort"* decision out into a **separate, learnable service**. It is **orthogonal** to *"what to do"*: keep your planner/skills, just ask this service one question per step — *System 1 or System 2?*
 
-这件事独立成一个所有 agent 都能调用的服务，与"做什么"正交。你照常用你的 planner，只在每步问它一句。
-
 ---
 
-## 2. How it works / 怎么工作
+## 2. How it works
 
 ```
 open_session(namespace)                  ← reuse skills accumulated under this namespace
@@ -54,13 +50,11 @@ The caller only ever computes four task-agnostic scalars (all in `[0,1]`):
 
 ---
 
-## 3. Design philosophy: how it is both fast AND accurate / 设计哲学：怎么做到又快又准
+## 3. Design philosophy: how it is both fast AND accurate
 
 The usual assumption is a **speed–accuracy trade-off**: go fast (cheap) and you lose accuracy; stay accurate and you pay (slow/expensive). This scheduler's whole point is that **for long-horizon tasks the trade-off is false** — you can be faster *and* more accurate at the same time, because the waste and the errors come from the **same root cause**: spending the same amount of compute on every step.
 
-通常的假设是**速度与准确率不可兼得**：求快（便宜）就丢准；求准就得慢/贵。本调度器的核心主张是：**在长程任务上这个取舍是个伪命题**——你可以同时更快*且*更准，因为"浪费"和"出错"其实来自**同一个病根**：对每一步都花同样多的算力。
-
-### 3.1 Why "same compute everywhere" loses on both axes / 为什么"每步一样使劲"两头都输
+### 3.1 Why "same compute everywhere" loses on both axes
 
 | failure mode | what it costs | who suffers from it |
 |---|---|---|
@@ -69,49 +63,38 @@ The usual assumption is a **speed–accuracy trade-off**: go fast (cheap) and yo
 | **a frozen threshold** | right at first, then the task changes and it keeps misfiring | hand-written skill / static router |
 | **deep-thinking on a dirty context** | the model gets *more* lost, not less → **slow & wrong** | everyone who ignores context pollution |
 
-Note the punchline: over-thinking hurts **speed**, under-thinking hurts **accuracy**, and they are the *same decision made wrong in opposite directions*. Fix the decision and both improve together.
+The punchline: over-thinking hurts **speed**, under-thinking hurts **accuracy**, and they are the *same decision made wrong in opposite directions*. Fix the decision and both improve together.
 
-关键在最后一句：过度深思伤的是**速度**，深思不足伤的是**准确率**，而它们是**同一个决策朝两个方向做错**。把这个决策做对，快和准就一起变好。
-
-### 3.2 The three design moves that buy "fast AND accurate" / 让"又快又准"成立的三个设计动作
+### 3.2 The three design moves that buy "fast AND accurate"
 
 1. **Spend compute where it pays (accuracy without waste).** Cheap steps go System 1, pivotal steps go System 2. You stop wasting deliberation on easy steps (→ faster) *and* stop starving the steps that actually decide success (→ more accurate). This is the EMMS *compromise in competition* (§4): economy and robustness bid per step instead of one global setting.
-   **把算力花在刀刃上（准而不浪费）**：便宜步走 System 1，关键步走 System 2。既不再把深思浪费在简单步上（→更快），也不再亏待真正决定成败的步（→更准）。这就是 §4 的 EMMS 竞争中协调：经济与稳健逐步竞价，而非一个全局档位。
 
 2. **Keep the context clean (speed compounds into accuracy).** Every deep call pollutes the context window; a dirty context makes *later* steps both slower and more error-prone (*"the more it thinks, the more lost it gets"*). By pricing pollution into the cost (`ecoCost = c + λρ`), the scheduler thinks deeply *less often but at the right moments*, so the context stays clean and late-task accuracy holds up. Frugality here is not just cheaper — it directly **protects accuracy on long tasks**.
-   **保持上下文干净（省出来的是准）**：每次深思都会污染上下文窗口；脏上下文让*后续*步又慢又容易错（"越想越乱"）。把污染计入代价（`ecoCost = c + λρ`），调度器就**更少但更准时地**深思，上下文保持干净，长程后段准确率不塌。这里的"省"不只是便宜，而是**直接保护了长任务的准确率**。
 
 3. **Notice when the task changes (stay accurate over time).** A frozen rule is accurate only until the task shifts, then it silently keeps misfiring. The scheduler watches **surprise**; when the active prototype stops matching mid-task (`sim < 0.7`) it ignites, re-examines, and switches prototype — recovering accuracy *online* instead of locking up.
-   **察觉任务变了（让"准"持续）**：写死的规则只在任务不变时准，一旦任务中途变性就默默持续误判。调度器盯着**惊讶**；当活跃原型中途不再匹配（`sim < 0.7`）就点燃、重审、切换原型——*在线*恢复准确率，而不是锁死。
 
-### 3.3 In one sentence / 一句话
+### 3.3 In one sentence
 
 > Fast comes from **not over-thinking easy steps and keeping the context clean**; accurate comes from **reserving deliberation for the steps that decide success and re-examining when the task changes** — and because both are the same per-step decision, optimizing it moves speed and accuracy in the *same* direction. The evidence in §7 shows exactly this: lower cost **and** fewer mishandled critical steps at once.
->
-> 快，来自**不在简单步上过度深思、并保持上下文干净**；准，来自**把深思留给决定成败的步、并在任务变性时重审**——而因为两者是同一个逐步决策，把它做对就让快与准朝*同一个*方向移动。§6 的证据正是如此：成本更低**且**误判的关键步更少，二者同时达成。
 
 ---
 
-## 4. What is EMMS, and exactly where is it used here / EMMS 是什么，到底用在了哪里
+## 4. What is EMMS, and exactly where is it used here
 
-**This is the part people find confusing, so read this first.** / **这一节专门讲清楚最容易看不懂的地方。**
+**This is the part people find confusing, so read this first.**
 
-### 3.1 EMMS in one paragraph / 一段话讲清 EMMS
+### 4.1 EMMS in one paragraph
 
-EMMS (Energy-Minimization Multi-Scale, 李静海) studies systems where **two opposing "dominant mechanisms" compete and never fully win** — e.g. in gas–solid flow, the fluid tends to **minimize resistance** (mechanism A) while particles tend to **minimize potential energy** (mechanism B). The system does **not** settle on a bland average of the two; instead it reaches a **"compromise in competition"** (竞争中的协调): the two extremal tendencies coexist, mediated by a **stability condition**. Mathematically that stability condition behaves like a **constrained optimization with a shadow price** (a Lagrange/KKT dual variable) that prices the conflict and pins down the operating point.
+EMMS (Energy-Minimization Multi-Scale, Li Jinghai) studies systems where **two opposing "dominant mechanisms" compete and never fully win** — e.g. in gas–solid flow, the fluid tends to **minimize resistance** (mechanism A) while particles tend to **minimize potential energy** (mechanism B). The system does **not** settle on a bland average of the two; instead it reaches a **"compromise in competition"**: the two extremal tendencies coexist, mediated by a **stability condition**. Mathematically that stability condition behaves like a **constrained optimization with a shadow price** (a Lagrange/KKT dual variable) that prices the conflict and pins down the operating point.
 
-EMMS 研究的是这样一类系统：**两个相互对立的"主导机制"竞争、谁也无法独占**——比如气固两相流里，流体倾向**最小化阻力**（机制 A），颗粒倾向**最小化势能**（机制 B）。系统**不会**停在两者的温吞平均，而是达到一种**"竞争中的协调"**：两个极端倾向共存，由一个**稳定性条件**居中裁决。这个稳定性条件在数学上等价于**带影子价（拉格朗日/KKT 对偶变量）的约束优化**——影子价给"冲突"定价，从而定出工作点。
-
-### 3.2 The exact mapping onto this scheduler / 在本调度器里的精确对应
+### 4.2 The exact mapping onto this scheduler
 
 We map EMMS's two competing mechanisms onto the **System 1 / System 2 boundary**. At every step, two mechanisms bid:
 
-我们把 EMMS 的两个竞争机制，搬到 **System 1 / System 2 的边界**上。每一步，两个机制出价竞争：
-
 | EMMS concept | gas–solid analogy | **in this scheduler** |
 |---|---|---|
-| Mechanism A — economy (省) | fluid minimizes resistance | **System 1**: use the cheap model, single shot, don't pollute context |
-| Mechanism B — robustness (稳) | particles minimize potential energy | **System 2**: ignite deep reasoning / best-of-N, pay tokens, but be safe |
+| Mechanism A — economy | fluid minimizes resistance | **System 1**: use the cheap model, single shot, don't pollute context |
+| Mechanism B — robustness | particles minimize potential energy | **System 2**: ignite deep reasoning / best-of-N, pay tokens, but be safe |
 | Conflict | A wants flow, B wants order | thinking more is **safer but pollutes context** — you can't maximize both |
 | Shadow price **μ** | prices the A↔B compromise | **the caution dial**: high μ → ignite more (cautious); low μ → save more (frugal) |
 | Stability condition | fixes the operating point | μ self-updates from task outcomes: **fail → μ↑, succeed → μ↓** |
@@ -119,9 +102,7 @@ We map EMMS's two competing mechanisms onto the **System 1 / System 2 boundary**
 
 The key EMMS insight reused here: **a single global average/threshold is wrong.** Just as gas–solid flow refuses to homogenize, a good scheduler refuses to put every step at the same compute level — it lets economy and robustness fight it out *per step*, coordinated by μ.
 
-这里复用的 EMMS 核心洞见是：**单一的全局平均/阈值是错的。** 就像气固流拒绝均匀化，好的调度器也拒绝把每一步都设成同一个算力档——它让"省"和"稳"在*每一步*上较量，由 μ 协调。
-
-### 3.3 Where it lives in the code / 它落在代码哪里
+### 4.3 Where it lives in the code
 
 | EMMS quantity | symbol | code location |
 |---|---|---|
@@ -130,15 +111,13 @@ The key EMMS insight reused here: **a single global average/threshold is wrong.*
 | competition decision | `ignite = robGain > ecoCost` | `selfModel.mjs` → `decideAbstract()` |
 | shadow price update (stability condition) | `μ` | `selfModel.mjs` → `feedback()` |
 
-These exact quantities are returned by `decide_step` as `rob_gain`, `eco_cost`, `mu`, `regime_shift` — so you can watch the EMMS auction happen live. **Figure (e) below is literally this auction**: each point is one step's `(ecoCost, robGain)`; the diagonal is the coordination boundary `robGain = ecoCost`.
-
-`decide_step` 会把这些量原样返回（`rob_gain` / `eco_cost` / `mu` / `regime_shift`），你能实时看到这场 EMMS 竞价。**下面的图 (e) 画的就是这场竞价**：每个点是某一步的 `(ecoCost, robGain)`，对角线就是协调边界 `robGain = ecoCost`。
+These exact quantities are returned by `decide_step` as `rob_gain`, `eco_cost`, `mu`, `regime_shift` — so you can watch the EMMS auction happen live. **Figure (e) in the overview is literally this auction**: each point is one step's `(ecoCost, robGain)`; the diagonal is the coordination boundary `robGain = ecoCost`.
 
 ---
 
-## 5. The principle in formulas / 原理公式：one "ignition" = one auction
+## 5. The principle in formulas: one "ignition" = one auction
 
-Each step is one EMMS auction (see §3), expressed in formulas. / 每一步就是一场 §3 描述的 EMMS 竞价，用公式写出来如下。
+Each step is one EMMS auction (see §4), expressed in formulas.
 
 **Step 1 — attention focus** (find the most similar prototype in the self-grown library):
 
@@ -150,7 +129,7 @@ $$\mathrm{sim} = \max_{p}\exp\!\Big(-\frac{\lVert x - \mathrm{protoFeat}_p\rVert
 
 $$\mathrm{robGain} = \mu\,(0.5 + \hat c)\,u,\qquad u = \mathrm{predErr}\,(2-\mathrm{sim})$$
 
-- The **economy** mechanism (System 1) wants to save; its cost = fixed consult cost + context-pollution penalty (the dirtier the context, the less you should think more — avoids *"the more it thinks, the more lost it gets"*):
+- The **economy** mechanism (System 1) wants to save; its cost = fixed consult cost + context-pollution penalty (the dirtier the context, the less you should think more):
 
 $$\mathrm{ecoCost} = c + \lambda\,\rho$$
 
@@ -169,7 +148,7 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 ---
 
-## 6. Why this can replace hand-written skills / 为什么能替代 skill
+## 6. Why this can replace hand-written skills
 
 | | hand-written skill | this (prototype library) |
 |---|---|---|
@@ -180,11 +159,11 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 ---
 
-## 7. Evidence / 证据
+## 7. Evidence
 
 All figures use Times New Roman, 300 dpi. Reproduce with `figures/gen_fig_data.mjs` + `figures/make_figures.py`.
 
-### 5.1 Long-horizon task with mid-task regime shift (60 tasks × 8 steps)
+### 7.1 Long-horizon task with mid-task regime shift (60 tasks × 8 steps)
 
 The task switches rule at task 30 (regime A → B, the hint→criticality mapping reverses). Cost model: cheap = 1, deep = 5; mishandling a critical step = wasted cheap try + forced upgrade (1+5); deep on a non-critical step = over-thinking (wastes 4).
 
@@ -198,13 +177,13 @@ The task switches rule at task 30 (regime A → B, the hint→criticality mappin
 
 ![arm cost](figures/fig1_arm_cost.png)
 
-### 5.2 It gets smarter with experience / 越学越聪明
+### 7.2 It gets smarter with experience
 
 The mishandle rate drops over task batches; after the mid-task regime shift it spikes then **self-recovers** as the core detects the change and re-fits its prototypes. The shadow price μ converges to an interior fixed point.
 
 ![learning](figures/fig2_learning.png) ![mu](figures/fig3_mu_trace.png)
 
-### 5.3 The killer experiment — mid-task rule shift (τ-bench-style, 30 seeds)
+### 7.3 The killer experiment — mid-task rule shift (τ-bench-style, 30 seeds)
 
 Post-shift decision accuracy (deliberation ↔ true criticality alignment):
 
@@ -223,12 +202,12 @@ Paired t-test, ours vs router-online: Δ = 5.2 pt, **p = 7.5e-15**, Cohen's d = 
 
 ---
 
-## 8. Novelty / 创新性 (honest positioning)
+## 8. Novelty (honest positioning)
 
 What genuinely stands up at review:
 
 1. **A metacognitive compute layer orthogonal to "what to do".** FrugalGPT does static routing, Reflexion is post-hoc, Voyager is still skills, RouteLLM has no shift-detection and no pollution-in-cost. Nobody makes *"how much compute"* an independent, learnable, MCP-exposed service driven by four task-agnostic signals.
-2. **Online regime-shift detection + prototype switching.** `sim < 0.7` forces re-examination; the system adapts mid-task where frozen thresholds lock up (Section 5.3, +5–10 pt, all p < 0.001).
+2. **Online regime-shift detection + prototype switching.** `sim < 0.7` forces re-examination; the system adapts mid-task where frozen thresholds lock up (§7.3, +5–10 pt, all p < 0.001).
 3. **Context pollution enters the decision cost.** *"The more you think, the messier it gets → the less you should think more."* Most frameworks ignore this; here it is a first-class term `ecoCost = c + λρ`.
 
 Honest boundaries:
@@ -239,7 +218,7 @@ Honest boundaries:
 
 ---
 
-## 9. Scientific anchors / 科学锚点
+## 9. Scientific anchors
 
 | concept | source | role here |
 |---|---|---|
@@ -250,24 +229,24 @@ Honest boundaries:
 
 ---
 
-## 10. Install & run / 安装与使用
+## 10. Install & run
 
 Requires Node.js ≥ 18. No build, no dependencies.
 
-### 8.1 Register in an MCP client
+### 10.1 Register in an MCP client
 
 ```jsonc
 {
   "mcpServers": {
     "conscious-scheduler": {
       "command": "node",
-      "args": ["/absolute/path/to/mcp/server.mjs"]
+      "args": ["/absolute/path/to/server.mjs"]
     }
   }
 }
 ```
 
-### 8.2 Tools
+### 10.2 Tools
 
 | tool | when | key params |
 |---|---|---|
@@ -281,26 +260,26 @@ Requires Node.js ≥ 18. No build, no dependencies.
 
 `decide_step` returns: `mode: "system1" | "system2"`, plus `criticality_estimate / threshold / familiarity / surprise / confidence / mu / rob_gain / eco_cost / regime_shift / suggest_compact`.
 
-### 8.3 Self-checks
+### 10.3 Self-checks
 
 ```powershell
 node server.mjs            # start the service (waits for JSON-RPC on stdin)
-node smoke.mjs            # full handshake + multi-round task + persistence check
+node smoke.mjs             # full handshake + multi-round task + persistence check
 node complexTask.mjs       # long-horizon 3-arm comparison
 node answerTests.mjs       # "does it get smarter / generalize / manage pollution" tests
 ```
 
-### 8.4 Reproduce the figures
+### 10.4 Reproduce the figures
 
 ```powershell
 node figures/gen_fig_data.mjs                          # -> fig_data.json
-$env:PYTHONNOUSERSITE="1"                               # isolate user site-packages (numpy clash)
+$env:PYTHONNOUSERSITE="1"                              # isolate user site-packages (numpy clash)
 python figures/make_figures.py                          # -> *.png (Times New Roman, 300 dpi)
 ```
 
 ---
 
-## 11. Repository layout / 目录结构
+## 11. Repository layout
 
 ```
 server.mjs          zero-dep stdio JSON-RPC 2.0 MCP server (8 tools)
@@ -309,6 +288,7 @@ selfModel.mjs       the scheduler core (decideAbstract / learnAbstract / feedbac
 smoke.mjs           full MCP handshake + persistence self-check
 complexTask.mjs     long-horizon 3-arm comparison (drives the real MCP transport)
 answerTests.mjs     "smarter / general / pollution" question tests
+README.zh.md        Chinese README
 ALGORITHM_zh.md     full Chinese algorithm write-up
 store/              persisted prototype libraries (per namespace)
 figures/
