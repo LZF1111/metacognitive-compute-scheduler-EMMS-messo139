@@ -1,5 +1,5 @@
-{
-  "name": "metacognitive-compute-scheduler",
+﻿{
+  "name": "metacognitive-compute-scheduler-emms-messo139",
   "version": "0.1.0",
   "description": "An MCP service that decides how much compute each agent step deserves (System 1 vs System 2) and learns that judgment from experience. EMMS compromise-in-competition mapped onto the dual-process boundary.",
   "type": "module",
@@ -32,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LZF1111/metacognitive-compute-scheduler.git"
+    "url": "https://github.com/LZF1111/metacognitive-compute-scheduler-EMMS-messo139.git"
   },
   "dependencies": {}
 }
