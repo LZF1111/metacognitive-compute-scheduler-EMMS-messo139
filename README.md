@@ -54,9 +54,53 @@ The caller only ever computes four task-agnostic scalars (all in `[0,1]`):
 
 ---
 
-## 3. The principle / 原理：one "ignition" = one auction
+## 3. What is EMMS, and exactly where is it used here / EMMS 是什么，到底用在了哪里
 
-Each step is a competition between two mechanisms, coordinated by a shadow price `μ`. This is the EMMS *"compromise in competition"* idea (Li Jinghai) mapped onto the System 1 / System 2 boundary.
+**This is the part people find confusing, so read this first.** / **这一节专门讲清楚最容易看不懂的地方。**
+
+### 3.1 EMMS in one paragraph / 一段话讲清 EMMS
+
+EMMS (Energy-Minimization Multi-Scale, 李静海) studies systems where **two opposing "dominant mechanisms" compete and never fully win** — e.g. in gas–solid flow, the fluid tends to **minimize resistance** (mechanism A) while particles tend to **minimize potential energy** (mechanism B). The system does **not** settle on a bland average of the two; instead it reaches a **"compromise in competition"** (竞争中的协调): the two extremal tendencies coexist, mediated by a **stability condition**. Mathematically that stability condition behaves like a **constrained optimization with a shadow price** (a Lagrange/KKT dual variable) that prices the conflict and pins down the operating point.
+
+EMMS 研究的是这样一类系统：**两个相互对立的"主导机制"竞争、谁也无法独占**——比如气固两相流里，流体倾向**最小化阻力**（机制 A），颗粒倾向**最小化势能**（机制 B）。系统**不会**停在两者的温吞平均，而是达到一种**"竞争中的协调"**：两个极端倾向共存，由一个**稳定性条件**居中裁决。这个稳定性条件在数学上等价于**带影子价（拉格朗日/KKT 对偶变量）的约束优化**——影子价给"冲突"定价，从而定出工作点。
+
+### 3.2 The exact mapping onto this scheduler / 在本调度器里的精确对应
+
+We map EMMS's two competing mechanisms onto the **System 1 / System 2 boundary**. At every step, two mechanisms bid:
+
+我们把 EMMS 的两个竞争机制，搬到 **System 1 / System 2 的边界**上。每一步，两个机制出价竞争：
+
+| EMMS concept | gas–solid analogy | **in this scheduler** |
+|---|---|---|
+| Mechanism A — economy (省) | fluid minimizes resistance | **System 1**: use the cheap model, single shot, don't pollute context |
+| Mechanism B — robustness (稳) | particles minimize potential energy | **System 2**: ignite deep reasoning / best-of-N, pay tokens, but be safe |
+| Conflict | A wants flow, B wants order | thinking more is **safer but pollutes context** — you can't maximize both |
+| Shadow price **μ** | prices the A↔B compromise | **the caution dial**: high μ → ignite more (cautious); low μ → save more (frugal) |
+| Stability condition | fixes the operating point | μ self-updates from task outcomes: **fail → μ↑, succeed → μ↓** |
+| Compromise in competition | heterogeneous coexistence (not an average) | per-step, **some steps go cheap, some go deep** — not a fixed global threshold |
+
+The key EMMS insight reused here: **a single global average/threshold is wrong.** Just as gas–solid flow refuses to homogenize, a good scheduler refuses to put every step at the same compute level — it lets economy and robustness fight it out *per step*, coordinated by μ.
+
+这里复用的 EMMS 核心洞见是：**单一的全局平均/阈值是错的。** 就像气固流拒绝均匀化，好的调度器也拒绝把每一步都设成同一个算力档——它让"省"和"稳"在*每一步*上较量，由 μ 协调。
+
+### 3.3 Where it lives in the code / 它落在代码哪里
+
+| EMMS quantity | symbol | code location |
+|---|---|---|
+| robustness bid (System 2 gain) | `robGain` | `selfModel.mjs` → `decideAbstract()` |
+| economy bid (System 1 cost) | `ecoCost` | `selfModel.mjs` → `decideAbstract()` |
+| competition decision | `ignite = robGain > ecoCost` | `selfModel.mjs` → `decideAbstract()` |
+| shadow price update (stability condition) | `μ` | `selfModel.mjs` → `feedback()` |
+
+These exact quantities are returned by `decide_step` as `rob_gain`, `eco_cost`, `mu`, `regime_shift` — so you can watch the EMMS auction happen live. **Figure (e) below is literally this auction**: each point is one step's `(ecoCost, robGain)`; the diagonal is the coordination boundary `robGain = ecoCost`.
+
+`decide_step` 会把这些量原样返回（`rob_gain` / `eco_cost` / `mu` / `regime_shift`），你能实时看到这场 EMMS 竞价。**下面的图 (e) 画的就是这场竞价**：每个点是某一步的 `(ecoCost, robGain)`，对角线就是协调边界 `robGain = ecoCost`。
+
+---
+
+## 4. The principle in formulas / 原理公式：one "ignition" = one auction
+
+Each step is one EMMS auction (see §3), expressed in formulas. / 每一步就是一场 §3 描述的 EMMS 竞价，用公式写出来如下。
 
 **Step 1 — attention focus** (find the most similar prototype in the self-grown library):
 
@@ -87,7 +131,7 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 ---
 
-## 4. Why this can replace hand-written skills / 为什么能替代 skill
+## 5. Why this can replace hand-written skills / 为什么能替代 skill
 
 | | hand-written skill | this (prototype library) |
 |---|---|---|
@@ -98,7 +142,7 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 ---
 
-## 5. Evidence / 证据
+## 6. Evidence / 证据
 
 All figures use Times New Roman, 300 dpi. Reproduce with `figures/gen_fig_data.mjs` + `figures/make_figures.py`.
 
@@ -141,7 +185,7 @@ Paired t-test, ours vs router-online: Δ = 5.2 pt, **p = 7.5e-15**, Cohen's d = 
 
 ---
 
-## 6. Novelty / 创新性 (honest positioning)
+## 7. Novelty / 创新性 (honest positioning)
 
 What genuinely stands up at review:
 
@@ -157,7 +201,7 @@ Honest boundaries:
 
 ---
 
-## 7. Scientific anchors / 科学锚点
+## 8. Scientific anchors / 科学锚点
 
 | concept | source | role here |
 |---|---|---|
@@ -168,7 +212,7 @@ Honest boundaries:
 
 ---
 
-## 8. Install & run / 安装与使用
+## 9. Install & run / 安装与使用
 
 Requires Node.js ≥ 18. No build, no dependencies.
 
@@ -218,7 +262,7 @@ python figures/make_figures.py                          # -> *.png (Times New Ro
 
 ---
 
-## 9. Repository layout / 目录结构
+## 10. Repository layout / 目录结构
 
 ```
 server.mjs          zero-dep stdio JSON-RPC 2.0 MCP server (8 tools)
@@ -237,6 +281,6 @@ figures/
 
 ---
 
-## 10. License
+## 11. License
 
 MIT. *"Conscious" is used as a functional metaphor only; no claim of phenomenal consciousness is made.*
