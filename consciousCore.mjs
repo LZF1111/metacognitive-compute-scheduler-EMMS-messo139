@@ -1,4 +1,4 @@
-﻿/**
+/**
  * consciousCore.mjs —— 意识核的「会话管理 + 持久化」封装，供 MCP 服务调用。
  *
  * 设计目标：让【任何智能体】都能把"这一步该用多大算力 / 要不要停下重想"这个元认知决策，
@@ -117,10 +117,13 @@ export class ConsciousCore {
     const { agent } = s;
     const x = [clamp01(obs.criticality_hint), clamp01(obs.difficulty_hint), clamp01(obs.progress)];
     const pollution = obs.context_pollution != null ? clamp01(obs.context_pollution) : agent.z.pollution;
-    const plan = agent.decideAbstract(x, pollution);
+    // 外部可声明本步的风险类别(normal/critical/irreversible)。irreversible(数据库迁移/部署/
+    // 删除/密钥/回滚等不可逆步) 走硬约束强制 System2+验证,不再被成本函数折中掉。
+    const riskClass = obs.irreversible ? "irreversible" : (obs.risk_class || "normal");
+    const plan = agent.decideAbstract(x, pollution, { riskClass });
 
-    // 成本敏感裁决是唯一的 mode 判据:plan.ignite = (库空 || eCostS1 > eCostS2 || regimeShift)。
-    const mode = plan.ignite ? "system2" : "system1";
+    // mode 由分层调度决定(硬约束→风险预算→安全窗口→成本敏感),不再是单一成本比较。
+    const mode = plan.mode;
 
     // 要深思但上下文已脏 → 建议先整理上下文再深思。阈值随 mu 调(越谨慎越早建议整理)。
     const compactTh = clamp01(0.6 - 0.1 * (agent.mu - 1));
@@ -132,6 +135,11 @@ export class ConsciousCore {
     return {
       mode,
       ignite: mode === "system2",
+      // ★分层安全调度的核心输出(外部据此知道这步走 S1/S2 还要不要验证):
+      risk_class: plan.riskClass,                 // normal | critical | irreversible
+      verify: plan.verify,                        // none | lint | test | dry_run | policy_check
+      remaining_risk_budget: +plan.remainingRiskBudget.toFixed(4),
+      decision_reason: plan.decisionReason,       // 触发本次裁决的那一层
       criticality_estimate: +plan.critEst.toFixed(4),
       threshold: +plan.theta.toFixed(4),
       familiarity: +plan.sim.toFixed(4),
@@ -139,10 +147,14 @@ export class ConsciousCore {
       confidence: +(1 - plan.predErr).toFixed(4),
       mu: +plan.mu.toFixed(4),
       suggest_compact: suggestCompact,
-      // ★真实决策依据(外部审计据此理解 mode 为何如此):成本敏感期望代价比较。
-      //   ignite ⟺ e_cost_s1 > e_cost_s2(或库空/变性)。p_crit = 关键概率(被不确定度上偏)。
-      decision_rule: "ignite ⟺ e_cost_s1 > e_cost_s2 (or empty library / regime shift)",
+      // ★决策依据(外部审计据此理解 mode 为何如此):分层裁决,成本敏感只是最后一层。
+      decision_rule: "layered: irreversible/critical hard-gate → risk-budget → safe-window → cost-sensitive",
       p_crit: plan.pCrit != null ? +plan.pCrit.toFixed(4) : null,
+      p_mean: plan.pMean != null ? +plan.pMean.toFixed(4) : null,
+      p_upper: plan.pUpper != null ? +plan.pUpper.toFixed(4) : null,  // 保守风险上界(裁决用它,非点估计)
+      n_effective: plan.nEff,
+      shift_score: plan.shiftScore != null ? +plan.shiftScore.toFixed(4) : null,
+      safe_window: plan.safeWindow,
       e_cost_s1: plan.eCostS1 != null ? +plan.eCostS1.toFixed(4) : null,
       e_cost_s2: plan.eCostS2 != null ? +plan.eCostS2.toFixed(4) : null,
       regime_shift: !!plan.regimeShift,
@@ -173,8 +185,9 @@ export class ConsciousCore {
   }
 
   /**
-   * 事后回报：观测到的真关键度 + 该步是否走了 System2。核据此自学（长/细化原型）。
-   * @param outcome {criticality_hint,difficulty_hint,progress, observed_criticality, used_system2, was_deep}
+   * 事后回报：观测到的真关键度 + 该步是否走了 System2 + (可选)验证器结果。核据此自学。
+   * @param outcome {criticality_hint,difficulty_hint,progress, observed_criticality, used_system2, was_deep,
+   *                 verifier_passed, miss_happened}
    */
   reportOutcome(sessionId, outcome = {}) {
     const s = this._get(sessionId);
@@ -195,9 +208,19 @@ export class ConsciousCore {
       calib.pending = null;
     }
 
-    agent.learnAbstract(x, observedCrit, usedS2);
+    // verifier_passed: 该步若挂了便宜验证器,验证是否通过(true/false/null=没验)。
+    // miss_happened:   外部可直接标注"漏判真发生了"(便宜处理了一个其实关键的步)。
+    const fb = {
+      verifierPassed: outcome.verifier_passed != null ? !!outcome.verifier_passed : null,
+      missHappened: outcome.miss_happened != null ? !!outcome.miss_happened : undefined,
+    };
+    agent.learnAbstract(x, observedCrit, usedS2, fb);
     agent.addPollution(usedS2, outcome.was_deep != null ? !!outcome.was_deep : usedS2);
-    return { ok: true, nPrototypes: agent.protos.length, pollution: +agent.z.pollution.toFixed(4) };
+    return {
+      ok: true, nPrototypes: agent.protos.length, pollution: +agent.z.pollution.toFixed(4),
+      remaining_risk_budget: +agent.z.riskBudget.toFixed(4),
+      shift_score: +(0.4 * agent.z.recentSurprise + 0.35 * agent.z.verifyFailEwma + 0.25 * Math.min(1, agent.z.residualEwma * 2)).toFixed(4),
+    };
   }
 
   /** 任务级反馈：整任务成/败 → 调协调变量 μ（稳定性条件）。 */

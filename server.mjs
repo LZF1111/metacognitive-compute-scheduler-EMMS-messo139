@@ -48,10 +48,12 @@ const TOOLS = [
   {
     name: "decide_step",
     description:
-      "★核心：判断当前这一步该用 System1(直觉/便宜模型/单候选) 还是 System2(点燃/强模型/多候选/深推理)。" +
-      "调用方只需提供通用可观测量（都是 0~1）：criticality_hint=这步表面多关键(错了毁全局?), " +
+      "★核心：判断当前这一步该用 System1(直觉/便宜模型/单候选) 还是 System2(点燃/强模型/多候选/深推理)，" +
+      "并给出是否需要验证(verify)。调用方提供通用可观测量(都是 0~1)：criticality_hint=这步表面多关键(错了毁全局?), " +
       "difficulty_hint=表面多难, progress=任务进度位置, context_pollution=当前上下文窗口占用比(已用token/窗口)。" +
-      "返回 mode 及【真实决策依据】(p_crit/e_cost_s1/e_cost_s2,ignite⟺e_cost_s1>e_cost_s2)。这是元认知决策，与'做什么步骤'(skill)正交。",
+      "★若这步不可逆(数据库迁移/部署/回滚/删除/改密钥权限)请传 irreversible=true 或 risk_class=critical → 走硬约束强制 System2+验证。" +
+      "返回 mode + risk_class(normal/critical/irreversible) + verify(none/lint/test/dry_run) + remaining_risk_budget + 分层决策依据" +
+      "(p_upper=保守风险上界,裁决用它而非点估计; decision_reason=触发哪一层)。这是元认知决策,与'做什么步骤'(skill)正交。",
     inputSchema: {
       type: "object",
       properties: {
@@ -60,6 +62,8 @@ const TOOLS = [
         difficulty_hint: { type: "number", description: "0~1，这步表面难度" },
         progress: { type: "number", description: "0~1，在整个任务中的进度位置" },
         context_pollution: { type: "number", description: "0~1，当前上下文占用比（真实量，强烈建议传）" },
+        risk_class: { type: "string", enum: ["normal", "critical", "irreversible"], description: "可选,声明本步风险类别。critical→强制System2+test; irreversible→强制System2+dry_run" },
+        irreversible: { type: "boolean", description: "可选,等价于 risk_class=irreversible。不可逆步(部署/迁移/删除/密钥)务必传 true" },
       },
       required: ["sessionId"],
     },
@@ -70,6 +74,8 @@ const TOOLS = [
       "这一步做完后回报真实结果，核据此自学（生长/细化原型=自己写skill）。" +
       "observed_criticality=事后看这步真实有多关键(0~1，如:便宜就成功=低, 必须强模型才成功=高)；" +
       "used_system2=这步是否实际走了深思；was_deep=是否做了深处理(默认同 used_system2)。" +
+      "★若 decide 返回了 verify 动作,把验证结果用 verifier_passed(true/false) 带回 → 喂变性探测器+风险预算账本;" +
+      "若便宜处理了一个其实关键的步(漏判),可用 miss_happened=true 显式标注。" +
       "建议把 decide_step 时用的 criticality_hint/difficulty_hint/progress 原样带回以对齐情形签名。",
     inputSchema: {
       type: "object",
@@ -81,6 +87,8 @@ const TOOLS = [
         observed_criticality: { type: "number", description: "0~1，事后观测的真关键度" },
         used_system2: { type: "boolean" },
         was_deep: { type: "boolean" },
+        verifier_passed: { type: "boolean", description: "可选,该步验证器是否通过(挂了 verify 时回报)" },
+        miss_happened: { type: "boolean", description: "可选,是否发生了关键漏判(便宜处理了其实关键的步)" },
       },
       required: ["sessionId", "observed_criticality", "used_system2"],
     },

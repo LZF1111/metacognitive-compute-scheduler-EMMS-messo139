@@ -56,15 +56,36 @@ export class SelfModelAgent {
     //   真实里 missPenalty >> overThinkCost(漏判要重做,过度只是浪费),故点燃判定本就该偏谨慎。
     this.missPenalty = opts.missPenalty ?? 6;      // 漏判关键步的代价(complexTask: 1次便宜白跑+5强模型重做)
     this.overThinkCost = opts.overThinkCost ?? 4;  // 非关键步过度深思的代价(complexTask: 浪费4)
+    // ── 分层安全调度参数(把"关键漏判"从软惩罚升级为硬约束)──
+    //   旧版只有 eCostS1>eCostS2 一条软规则,missPenalty 再大也只是偏好,会在某些 regime 拿安全换成本。
+    //   新版三层:irreversible/critical 硬约束强制 System2(+verify) → 风险上界超预算 → 才走成本敏感。
+    this.criticalGate = opts.criticalGate ?? 0.75; // 风险上界 pUpper 超此 → 当作 hard-critical 强制 System2
+    this.verifyGate = opts.verifyGate ?? 0.35;     // 不点燃(System1)但 pUpper 超此 → 挂一个便宜 verifier
+    this.kUpper = opts.kUpper ?? 0.5;              // pUpper 相对 pMean 的不确定度膨胀(陌生/原型不准→上界更高)
+    this.kSample = opts.kSample ?? 0.25;           // 小样本膨胀:原型样本少(nEff 小)→上界更高(保守)
+    this.shiftTh = opts.shiftTh ?? 0.6;            // 残差式变性探测阈(综合陌生度/验证失败率/关键度残差)
+    this.safeWindowLen = opts.safeWindowLen ?? 3;  // 检测到变性后进入的"安全探索窗口"步数(期间多用 System2)
+    // 风险预算 = 每任务能容忍的"累计未验证漏判风险"总额(单位:Σ pUpper)。
+    //   不是单步阈值:它随便宜步累加 pUpper 而耗尽。耗尽后才强制升级 → 防止"连续在中风险步省成本"。
+    //   足够宽裕(默认2.5)使其只作后备保险,正常步由 L4 成本敏感主导(复现旧版省成本的好处)。
+    this.riskBudget0 = opts.riskBudget0 ?? 2.5;
     this.deepEwma = 0.5;
     this.canGrow = opts.canGrow ?? true;     // 能否自生原型（关掉=只能用已有=类 skill 库）
     this.canShift = opts.canShift ?? true;   // 能否中途切换活跃原型（关掉=锁死，模拟 skill 派发）
     // 自我状态 z（loop 级，被全局广播）。pollution = 本任务已累积的上下文污染(agent 自估)。
-    this.z = { activeProto: -1, recentSurprise: 0.5, steps: 0, ignitions: 0, pollution: 0 };
+    //   residualEwma  = 关键度预测残差的滑动均值(预测越来越不准 = 可能变性);
+    //   verifyFailEwma= 最近 verifier/升级失败率(行为层面的变性信号,比相似度更可靠);
+    //   safeWindow    = 安全探索窗口剩余步数; riskBudget = 本任务剩余风险预算。
+    this.z = { activeProto: -1, recentSurprise: 0.5, steps: 0, ignitions: 0, pollution: 0,
+               residualEwma: 0, verifyFailEwma: 0, safeWindow: 0, riskBudget: this.riskBudget0 };
   }
 
   /** 新任务开始：重置 loop 级自我状态（上下文清空）。原型库与 μ 跨任务保留。 */
-  newTask() { this.z.pollution = 0; this.z.activeProto = -1; this.z.recentSurprise = 0.5; }
+  newTask() {
+    this.z.pollution = 0; this.z.activeProto = -1; this.z.recentSurprise = 0.5;
+    this.z.residualEwma = 0; this.z.verifyFailEwma = 0; this.z.safeWindow = 0;
+    this.z.riskBudget = this.riskBudget0;
+  }
 
   /** 情形签名 → [crit线索, 难度线索, 进度]。环境只给弱线索；真关键度隐藏。 */
   _feat(step) { return [step.critHint, step.dHint, step.i / step.n]; }
@@ -221,44 +242,90 @@ export class SelfModelAgent {
    * @param {number}   pollution 当前真实上下文污染 ∈[0,1]（token 占窗比）
    * @returns {{ignite:boolean, critEst:number, theta:number, sim:number, surprise:number, protoIdx:number}}
    */
-  decideAbstract(x, pollution = this.z.pollution) {
+  /**
+   * 决策一拍（分层安全调度）。给定真实情形签名 x + 当前真实上下文污染，返回分层决策。
+   *
+   * 决策层次(从硬到软):
+   *   L0 硬约束: riskClass=irreversible(外部标注的不可逆步,如数据库迁移/部署/密钥) → 强制 System2+verify。
+   *   L1 风险上界: pUpper(保守上界,非点估计 pMean) ≥ criticalGate → 当作 hard-critical → System2+verify。
+   *   L2 风险预算: 若本步漏判风险 riskLoss 会吃穿本任务剩余风险预算 → System2。
+   *   L3 安全窗口: 检测到变性后的探索窗口内 → 偏向 System2(多探索,别急着省)。
+   *   L4 成本敏感: 以上都不触发 → 才用 eCostS1>eCostS2 的成本敏感比较选 S1/S2。
+   * 并独立给出 verify 动作: 即便走 System1,只要 pUpper 超 verifyGate 就挂一个便宜验证器
+   *   (把"猜对没有"变成"检查过了")。
+   *
+   * @param {number[]} x         真实情形签名（前 3 维对齐 _rfeat 的 [crit,难,进度]）
+   * @param {number}   pollution 当前真实上下文污染 ∈[0,1]（token 占窗比）
+   * @param {object}   [ctx]     可选上下文: {riskClass:"normal"|"critical"|"irreversible"}
+   * @returns {{ignite,mode,verify,riskClass,critEst,pCrit,pMean,pUpper,eCostS1,eCostS2,...}}
+   */
+  decideAbstract(x, pollution = this.z.pollution, ctx = {}) {
     this.z.steps++;
     const { proto, sim } = this._match(x);
     const surprise = 1 - sim;
     this.z.recentSurprise = 0.8 * this.z.recentSurprise + 0.2 * surprise;
 
-    // ── 点燃判定 = 成本敏感的期望代价比较(不再是手调阈值的纯竞价)──
-    //   pCrit = 这步真关键的概率估计。用 critEst 为中心,被不确定度抬高(没把握时宁可高估关键度→
-    //           更愿点燃,因为漏判远比过度深思贵)。这把"罕见但极关键"的步守住。
-    const critEst = proto ? proto.critEst(this._rfeat(x)) : 0.5;
-    const uncert = proto ? proto.predErr * (2 - sim) : 1.0;   // 0~2:原型越不准/情形越陌生越大
-    const pCrit = clamp01(critEst + 0.5 * uncert * (1 - critEst)); // 不确定时向上偏置(谨慎)
-    //   System1(便宜)的期望代价 = 漏判风险:这步若真关键(概率 pCrit),便宜处理会失败要重做。
-    //     乘 μ:谨慎度高→更看重漏判风险。
+    // ── 风险均值 pMean 与保守上界 pUpper(不再拿单个点估计直接当概率)──
+    //   pMean  = 原型读出的关键风险(点估计);
+    //   uncert = 原型不准(predErr)×陌生度(2-sim) → 越不确定越大;
+    //   nEff   = 原型有效样本数(越少越不可信); 新/稀有/突变后原型 → 上界自动抬高,短期多用 System2。
+    const pMean = proto ? proto.critEst(this._rfeat(x)) : 0.5;
+    const uncert = proto ? proto.predErr * (2 - sim) : 1.0;
+    const nEff = proto ? proto.n : 0;
+    const sampleInflate = this.kSample / Math.sqrt(1 + nEff);  // 小样本→大;样本多→趋0
+    const pUpper = clamp01(pMean + this.kUpper * uncert * (1 - pMean) + sampleInflate);
+    // pCrit 保留为"被不确定度上偏的关键概率"(兼容旧透出),与 pUpper 同向。
+    const pCrit = clamp01(pMean + 0.5 * uncert * (1 - pMean));
+
+    // ── 残差式变性探测(比"只看相似度"更可靠):综合陌生度 + 验证失败率 + 关键度残差 EWMA ──
+    const shiftScore = 0.4 * surprise + 0.35 * this.z.verifyFailEwma + 0.25 * Math.min(1, this.z.residualEwma * 2);
+    const protoSwitch = this.canShift && proto && this.z.activeProto !== -1 &&
+      proto !== this.protos[this.z.activeProto] && sim < 0.7;
+    const regimeShift = protoSwitch || shiftScore > this.shiftTh;
+    if (regimeShift && this.z.safeWindow <= 0) this.z.safeWindow = this.safeWindowLen; // 开启安全探索窗口
+
+    // ── 成本敏感期望代价(L4)──
     const eCostS1 = this.mu * pCrit * this.missPenalty;
-    //   System2(深思)的期望代价 = 固定深审成本 + 非关键步白深思 + 污染惩罚。
     const eCostS2 = this.consultCost * this.overThinkCost +
                     (1 - pCrit) * this.overThinkCost +
                     this.polluteWeight * pollution * this.overThinkCost;
-    // 保留竞价量供报告/画图(robGain=稳健出价, ecoCost=经济要价),与期望代价同向。
-    const robGain = this.mu * (0.5 + critEst) * uncert;
-    const ecoCost = this.consultCost + this.polluteWeight * pollution;
-    const regimeShift = this.canShift && proto && this.z.activeProto !== -1 &&
-      proto !== this.protos[this.z.activeProto] && sim < 0.7;
-    // 点燃当且仅当:库空(无图式) || System1期望代价 > System2期望代价 || 中途变性强制重审。
-    const ignite = this.protos.length === 0 || eCostS1 > eCostS2 || regimeShift;
+
+    // ── 分层裁决 ──
+    const declaredClass = ctx.riskClass || "normal";
+    // 风险类: 外部声明 irreversible 最高;否则 pUpper 超 criticalGate 视为 critical。
+    const riskClass = declaredClass === "irreversible" ? "irreversible"
+      : (declaredClass === "critical" || pUpper >= this.criticalGate) ? "critical" : "normal";
+    const riskLoss = pUpper * 1.0;  // 归一化漏判风险(用上界,保守)
+
+    let mode, reason;
+    if (riskClass === "irreversible") { mode = "system2"; reason = "irreversible-hard-gate"; }
+    else if (riskClass === "critical") { mode = "system2"; reason = "critical-upperbound-gate"; }
+    else if (this.z.riskBudget <= 0) { mode = "system2"; reason = "risk-budget-exhausted"; }
+    else if (this.z.safeWindow > 0) { mode = "system2"; reason = "safe-exploration-window"; }
+    else if (this.protos.length === 0) { mode = "system2"; reason = "empty-library"; }
+    else { mode = eCostS1 > eCostS2 ? "system2" : "system1"; reason = "cost-sensitive"; }
+    const ignite = mode === "system2";
+    // 走便宜路(System1)且没挂验证器 → 从风险预算里扣这步的未验证风险上界 pUpper。
+    //   预算耗尽 = 累计未验证风险够多了 → 后续强制升级(L2)。验证过的步不扣(风险已被检查掉)。
+    this._pendingSpend = riskLoss;  // 实际是否扣由 learnAbstract 据真实路径/验证结果决定
+
+    // ── verify 动作: System2 的高风险步强制验证;System1 但风险上界不低 → 也挂便宜验证器 ──
+    let verify = "none";
+    if (riskClass === "irreversible") verify = "dry_run";       // 不可逆步: dry-run/审核
+    else if (riskClass === "critical") verify = "test";          // 关键步: 跑测试
+    else if (mode === "system1" && pUpper >= this.verifyGate) verify = "lint"; // 普通但不放心: 便宜静态检查
 
     const theta = this._theta(proto);
     this.z.activeProto = proto ? this.protos.indexOf(proto) : -1;
     const predErr = proto ? proto.predErr : 1.0;
-    // 透出量供报告/画图:
-    //   eCostS1/eCostS2 = 成本敏感的期望代价(驱动点燃的真判据);
-    //   robGain/ecoCost = 等价竞价量(robGain=稳健出价, ecoCost=经济要价), 与期望代价同向, 兼容旧图。
-    //   μ = 协调影子价; pCrit = 关键概率估计(被不确定度上偏)。
+    const robGain = this.mu * (0.5 + pMean) * uncert;
+    const ecoCost = this.consultCost + this.polluteWeight * pollution;
     return {
-      ignite, critEst, theta, sim, surprise, predErr, mu: this.mu, protoIdx: this.z.activeProto,
-      robGain, ecoCost, uncert, regimeShift, pollution,
-      pCrit, eCostS1, eCostS2,
+      ignite, mode, verify, riskClass, decisionReason: reason,
+      critEst: pMean, theta, sim, surprise, predErr, mu: this.mu, protoIdx: this.z.activeProto,
+      robGain, ecoCost, uncert, regimeShift, shiftScore, pollution, safeWindow: this.z.safeWindow,
+      remainingRiskBudget: this.z.riskBudget,
+      pCrit, pMean, pUpper, nEff, eCostS1, eCostS2,
     };
   }
 
@@ -268,12 +335,40 @@ export class SelfModelAgent {
    * 真实里【每题都有真 pytest oracle】——升档阶梯本身就观测到了真关键度（省档过=易/要满力才过=难），
    * 故真实里【每题都学】：点燃(或库空)→自生新原型，否则→用真升档结果细化最近原型。
    * 这修掉了"点燃恒用满力→observedCrit 恒高→学不会易题"的偏置（点燃掩盖真关键度）。
-   * @param {number[]} x           情形签名（与决策同一个）
-   * @param {number}   observedCrit 真关键度 ∈[0,1]（真实里=实际需要的最低功率档/最高档归一化）
+   *
+   * 同时维护分层调度的状态:
+   *   • 关键度预测残差 → residualEwma(预测越来越不准 = 变性信号,喂给 shiftScore);
+   *   • verifier 失败 → verifyFailEwma(行为层变性信号) + 消耗本步风险预算(漏判真发生→预算扣更多);
+   *   • 安全探索窗口步数递减。
+   * @param {number[]} x            情形签名（与决策同一个）
+   * @param {number}   observedCrit 真关键度 ∈[0,1]
    * @param {boolean}  ignited      该步是否点燃（决定自生 vs 细化）
+   * @param {object}   [fb]         可选事后反馈 {verifierPassed:boolean|null, missHappened:boolean}
    */
-  learnAbstract(x, observedCrit, ignited) {
+  learnAbstract(x, observedCrit, ignited, fb = {}) {
     const { proto, sim } = this._match(x);
+    // 预测残差(用决策前原型的读出) → 喂残差式变性探测器。
+    const predBefore = proto ? proto.critEst(this._rfeat(x)) : 0.5;
+    const residual = Math.abs(observedCrit - predBefore);
+    this.z.residualEwma = 0.8 * this.z.residualEwma + 0.2 * residual;
+    // verifier 行为信号 + 风险预算消耗。
+    if (fb.verifierPassed === false) this.z.verifyFailEwma = 0.7 * this.z.verifyFailEwma + 0.3;
+    else if (fb.verifierPassed === true) this.z.verifyFailEwma = 0.7 * this.z.verifyFailEwma;
+    // 风险预算是累计账本:只有"便宜处理(System1)且没被验证通过"的步才花预算(花掉它当时的风险上界);
+    //   走 System2 或验证通过的步不花(风险已被深审/检查掉),还略微回补预算(信誉恢复)。
+    const verified = fb.verifierPassed === true;
+    const spent = this._pendingSpend ?? observedCrit;
+    this._pendingSpend = null;
+    if (!ignited && !verified) {
+      this.z.riskBudget = Math.max(-1, this.z.riskBudget - spent);
+      // 漏判真发生(便宜处理了其实关键的步) → 额外重扣,加速后续强制升级。
+      const missHappened = fb.missHappened ?? (observedCrit > 0.6);
+      if (missHappened) this.z.riskBudget -= 0.5;
+    } else {
+      this.z.riskBudget = Math.min(this.riskBudget0, this.z.riskBudget + 0.15); // 安全步缓慢回补
+    }
+    if (this.z.safeWindow > 0) this.z.safeWindow--;
+
     const needNew = !proto || sim < this.mergeSim;
     if (ignited) this.z.ignitions++;
     if ((ignited && needNew) || !proto) {
