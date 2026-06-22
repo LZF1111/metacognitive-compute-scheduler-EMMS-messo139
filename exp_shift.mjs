@@ -116,7 +116,9 @@ function runConscious(agent, episodes, rng) {
       if (remaining <= 0) { epOk = false; continue; }
       const x = [clamp01(s.critHint), clamp01(s.dHint), clamp01(i / ep.length)];
       const plan = agent.decideAbstract(x, clamp01(used / BUDGET));
-      const startP = plan.critEst > plan.theta ? MAXP : 0;
+      // ★用对外 MCP 调度器的真实判据 plan.ignite(成本敏感期望代价 eCostS1>eCostS2 / 库空 / 变性),
+      //   而非旧的"关键度阈值"读出 → shift 实验严格反映【当前 MCP 调度器】在突变场景的表现。
+      const startP = plan.ignite ? MAXP : 0;
       const r = execStep(s, startP, remaining, rng);
       used += r.cost; cost += r.cost;
       if (!r.ok && s.isCritical) epOk = false;

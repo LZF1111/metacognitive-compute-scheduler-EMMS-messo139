@@ -186,6 +186,8 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{eCostS1} 
 
 ![arm cost](figures/fig1_arm_cost.png)
 
+*图：单个代表性 seed（示意）。权威统计是上表的 20-seed 均值 ± std（`mcp/benchSeeds.mjs`）。*
+
 ### 7.2 越学越聪明
 
 误判率随任务批次下降；中途变性后会先飙升再**自行恢复**——调度核察觉到变化并重新拟合原型。影子价 μ 收敛到内点不动点。
@@ -201,9 +203,9 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{eCostS1} 
 | static-skill（冻结阈值） | 52.4 ± 5.1% |
 | router-frozen | 55.6 ± 9.0% |
 | router-online（评测仍在线学） | 57.3 ± 3.4% |
-| **conscious（本文）** | **60.3 ± 2.6%** |
+| **conscious（本文）** | **59.8 ± 3.3%** |
 
-配对 t 检验，本文 vs router-online：Δ = 3.0 pt，**p = 8.3e-6**，Cohen's d = 0.82，胜率 77%。（复现：`node exp_shift.mjs`，30 seed。）
+配对 t 检验，本文 vs router-online：Δ = 2.5 pt，**p = 4.9e-7**，Cohen's d = 0.93，胜率 80%。conscious 臂用**对外 MCP 真实判据 `plan.ignite`**（成本敏感 `eCostS1 > eCostS2`）选功率，而非旧的“关键度阈值”读出——所以这里测的是*部署中的调度器*，不是代理指标。（复现：`node exp_shift.mjs`，30 seed。）
 
 > 单一全局阈值（skill/router）**既无法表达分段规律，也察觉不到切换**。调度器靠惊讶点燃、在线切换原型 → 突变后准确率显著更高。这是长程 / 中途变性任务的核心卖点。
 
@@ -225,6 +227,9 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{eCostS1} 
 - *"意识"*是**功能性**比喻（GWT 点燃 + AST 自我模型 + 元认知），**不主张现象学意识**。
 - **上下文污染是个合成的模型规则，不是实测的 LLM 证据。** 在 benchmark 里，System 2 是被*程序化地*随 `context_pollution` 上升而故意变得更易失败的（`ecoCost = c + λρ`）。这只验证了机制在*这个模型里*按设计运转，但**不是**真实 LLM 长上下文退化的证据。要证实现实效应，需要在真实模型上端到端跑、实测准确率-上下文长度曲线。
 - 常数（`missPenalty = 6`、`overThinkCost = 4`、`consultCost = 0.1`、阈值 `p* = 0.8`）是**手设的风格化代价模型**，未拟合真实的 token/延迟/错误预算。代价不同，Pareto 点会移动。
+- **`p_crit` 是风险分，不是校准概率。** 它是读出关键度在不确定时向谨慎上偏（`clip(ĉ + ½·u·(1−ĉ))`）；**不主张**它在统计意义上是校准的（0.8 的分并不意味着 80% 的实际关键率）。
+- **合成环境 + oracle 标签。** 所有 20/30-seed 结果都用带真值关键度的合成任务生成器。它们证明机制在受控突变下*有效*，但不是真实 agent 轨迹的证据。
+- **最强基线尚未加入。** 这里的公平基线是单个成本敏感逻辑路由器；更硬的应该给成本敏感路由器加上**显式 change-point detection**。那个对比是后续工作。
 - 底座很强时（如 Opus）上游点燃很少用得上——升级阶梯已能兜底。优势最明显的场景是**长程 / 中途变性 / 弱模型或贵 token**。
 
 ---

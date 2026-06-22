@@ -186,6 +186,8 @@ The task switches rule at task 30 (regime A → B, the hint→criticality mappin
 
 ![arm cost](figures/fig1_arm_cost.png)
 
+*Figure: one representative seed (illustrative). The authoritative statistics are the 20-seed mean ± std in the table above (`mcp/benchSeeds.mjs`).*
+
 ### 7.2 It gets smarter with experience
 
 The mishandle rate drops over task batches; after the mid-task regime shift it spikes then **self-recovers** as the core detects the change and re-fits its prototypes. The shadow price μ converges to an interior fixed point.
@@ -201,9 +203,9 @@ Post-shift decision accuracy (deliberation ↔ true criticality alignment):
 | static-skill (frozen threshold) | 52.4 ± 5.1% |
 | router-frozen | 55.6 ± 9.0% |
 | router-online (still learning at test) | 57.3 ± 3.4% |
-| **conscious (ours)** | **60.3 ± 2.6%** |
+| **conscious (ours)** | **59.8 ± 3.3%** |
 
-Paired t-test, ours vs router-online: Δ = 3.0 pt, **p = 8.3e-6**, Cohen's d = 0.82, win-rate 77%. (Reproduce: `node exp_shift.mjs`, 30 seeds.)
+Paired t-test, ours vs router-online: Δ = 2.5 pt, **p = 4.9e-7**, Cohen's d = 0.93, win-rate 80%. The conscious arm selects power via the **real MCP rule `plan.ignite`** (cost-sensitive `eCostS1 > eCostS2`), not the old criticality-threshold read-out — so this is the *deployed scheduler*, not a proxy. (Reproduce: `node exp_shift.mjs`, 30 seeds.)
 
 > A single global threshold (skill/router) **cannot express a piecewise rule and cannot notice the switch**. The scheduler ignites on surprise and switches prototypes online → significantly higher post-shift accuracy. This is the core selling point for long-horizon / mid-task-shift tasks.
 
@@ -225,6 +227,9 @@ Honest boundaries:
 - *"Conscious"* is a **functional** metaphor (GWT ignition + AST self-model + metacognition). **No claim of phenomenal consciousness.**
 - **Context pollution is a synthetic model rule, not measured LLM evidence.** In the benchmark, System 2 is *programmatically* made to fail more as `context_pollution` rises (`ecoCost = c + λρ`). This validates that the mechanism behaves as designed *inside the model*, but it is **not** evidence of real long-context degradation in an actual LLM. Confirming the real-world effect requires end-to-end runs on a live model with measured accuracy-vs-context-length.
 - The constants (`missPenalty = 6`, `overThinkCost = 4`, `consultCost = 0.1`, threshold `p* = 0.8`) are **hand-set to a stylised cost model**, not fit to a real token/latency/error budget. Different costs move the Pareto point.
+- **`p_crit` is a risk score, not a calibrated probability.** It is the read-out criticality inflated toward caution under uncertainty (`clip(ĉ + ½·u·(1−ĉ))`); it is *not* claimed to be calibrated in the statistical sense (a 0.8 score does not mean 80% empirical critical rate).
+- **Synthetic environment with oracle labels.** All 20/30-seed results use a synthetic task generator with ground-truth criticality. They show the *mechanism* works under controlled shifts; they are not real-agent-trajectory evidence.
+- **The strongest baseline is still pending.** The fair baseline here is a single cost-sensitive logistic router; a tougher one would add **explicit change-point detection** to the cost-sensitive router. That comparison is future work.
 - On a strong base model (e.g. Opus), the upstream ignition is rarely needed — the upgrade ladder already covers it. The advantage is clearest in **long-horizon / mid-task-shift / weak-model-or-expensive-token** regimes.
 
 ---

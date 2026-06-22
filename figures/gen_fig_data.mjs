@@ -133,15 +133,16 @@ const base = a1.cost;
 const saveOf = (c) => +(((base - c) / base) * 100).toFixed(1);
 
 // ── exp_shift.mjs 的 30-seed 结果（中途变性后半段决策准确率，均值±std）──
+// 数字来自 `node exp_shift.mjs`（conscious 臂用对外 MCP 真实判据 plan.ignite 选功率）。
 const shiftBars = {
-  note: "exp_shift.mjs, seeds=30, L=16, episodes=50; 突变后半段决策准确率(深思↔真关键对齐)",
+  note: "exp_shift.mjs, seeds=30, L=16, episodes=50; 突变后半段决策准确率(深思↔真关键对齐); conscious 用 plan.ignite",
   arms: [
     { name: "static-skill", mean: 52.4, std: 5.1 },
     { name: "router-frozen", mean: 55.6, std: 9.0 },
     { name: "router-online", mean: 57.3, std: 3.4 },
-    { name: "conscious", mean: 61.3, std: 2.4 },
+    { name: "conscious", mean: 59.8, std: 3.3 },
   ],
-  significance: "conscious vs router-online: Δ=4.0pt, p=2.8e-14, d=1.40, 胜率90%",
+  significance: "conscious vs router-online: Δ=2.5pt, p=4.9e-7, d=0.93, 胜率80%",
 };
 
 const out = {
