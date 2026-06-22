@@ -43,8 +43,8 @@ export class SelfModelAgent {
   constructor(opts = {}) {
     this.protos = [];                 // 原型库（自己长出的 skill）
     this.igniteTh = opts.igniteTh ?? 0.45;  // 点燃阈值（惊讶超过则调 System 2）
-    this.simTau = opts.simTau ?? 0.35;       // 相似度核宽（太小→原型永不匹配→记忆失效；放宽让相似情形能认出）
-    this.mergeSim = opts.mergeSim ?? 0.6;    // ★合并阈值：新情形与最近原型相似度>此→合并而非新建(防膨胀)
+    this.simTau = opts.simTau ?? 0.18;       // 相似度核宽：太大→不同关键度的情形被并成一个原型(欠分化)；太小→原型永不复用。0.18 让易/难题各自成型。
+    this.mergeSim = opts.mergeSim ?? 0.7;    // ★合并阈值：新情形与最近原型相似度>此→合并而非新建(防膨胀)。配合 simTau 让真正相似的才合并。
     this.maxProto = opts.maxProto ?? 12;     // ★原型库上限（意识是稀缺的：少量稳定图式，满了淘汰最弱）
     this.lr = opts.lr ?? 0.12;
     this.mu = opts.mu0 ?? 1.0;        // 全局谨慎度 = 风险的影子价（竞争-协调的协调变量）
