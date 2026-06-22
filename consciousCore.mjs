@@ -11,9 +11,9 @@
  *   - context_pollution∈[0,1]：当前上下文窗口有多满/多脏（= 已用 token / 窗口；这是真实量）
  *
  * 核返回【决策】：
- *   - mode: "system1"(直觉/便宜) | "system2"(点燃/深思)
+ *   - mode: "system1"(直觉/便宜) | "system2"(点燃/深思)，由竞价裁决 robGain>ecoCost 直接决定
  *   - criticality_estimate：核估计的真关键度
- *   - rationale：竞价数值（robGain vs ecoCost），便于调用方理解为什么
+ *   - rob_gain / eco_cost：竞价过程量，便于调用方理解为何如此决策
  *
  * 事后调用方回报【真实结果】(report_outcome / task_feedback) → 核自学，更新原型库与 μ。
  *
@@ -115,14 +115,12 @@ export class ConsciousCore {
     const pollution = obs.context_pollution != null ? clamp01(obs.context_pollution) : agent.z.pollution;
     const plan = agent.decideAbstract(x, pollution);
 
-    // 真实落地语义（与 consciousAgent.mjs 一致）：
-    //   "自信判定为关键/难" (critEst > theta) → System2 点燃（值得直接上深思）。
-    //   否则 → System1 直觉（先便宜处理；真实里失败可由调用方自行升级=升档阶梯）。
-    // plan.ignite（竞价 robGain>ecoCost）作为辅助信号一并返回，调用方可参考。
-    const mode = plan.critEst > plan.theta ? "system2" : "system1";
+    // 竞价裁决是唯一的 mode 判据:plan.ignite = (库空 || robGain > ecoCost || regimeShift)。
+    // 这比静态阈值多看了不确定性(uncert)与上下文污染:没把握就深思,上下文脏了就收手。
+    const mode = plan.ignite ? "system2" : "system1";
 
-    // ★放大污染机制：要深思但上下文已脏(污染高)→ 建议先整理上下文再深思（避免"越想越乱"自毒）。
-    //   阈值随 μ 调（越谨慎越早建议整理）。这把"污染入代价"从被动惩罚升级为主动治理建议。
+    // 要深思但上下文已脏(污染高)→ 建议先整理上下文再深思,避免越想越乱。
+    // 阈值随 mu 调:越谨慎越早建议整理。
     const compactTh = clamp01(0.6 - 0.1 * (agent.mu - 1));
     const suggestCompact = mode === "system2" && pollution > compactTh;
 
@@ -139,9 +137,8 @@ export class ConsciousCore {
       surprise: +plan.surprise.toFixed(4),    // 越大 = 越陌生
       confidence: +(1 - plan.predErr).toFixed(4),
       mu: +plan.mu.toFixed(4),
-      bid_signal: plan.ignite,                // 竞价原始结论(robGain>ecoCost)
-      suggest_compact: suggestCompact,        // ★建议先压缩/整理上下文再深思
-      // ★EMMS 竞争-协调原始竞价量(供论文"竞价裁决+μ影子价收敛"分析)：
+      suggest_compact: suggestCompact,        // 建议先压缩/整理上下文再深思
+      // EMMS 竞争-协调的原始竞价量,供分析竞价裁决与 mu 影子价收敛。
       rob_gain: plan.robGain != null ? +plan.robGain.toFixed(4) : null,   // 稳健机制(S2)出价
       eco_cost: plan.ecoCost != null ? +plan.ecoCost.toFixed(4) : null,   // 经济机制(S1)要价
       regime_shift: !!plan.regimeShift,       // 是否触发中途变性强制重审
