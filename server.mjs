@@ -51,7 +51,7 @@ const TOOLS = [
       "★核心：判断当前这一步该用 System1(直觉/便宜模型/单候选) 还是 System2(点燃/强模型/多候选/深推理)。" +
       "调用方只需提供通用可观测量（都是 0~1）：criticality_hint=这步表面多关键(错了毁全局?), " +
       "difficulty_hint=表面多难, progress=任务进度位置, context_pollution=当前上下文窗口占用比(已用token/窗口)。" +
-      "返回 mode 及理由。这是元认知决策，与'做什么步骤'(skill)正交。",
+      "返回 mode 及【真实决策依据】(p_crit/e_cost_s1/e_cost_s2,ignite⟺e_cost_s1>e_cost_s2)。这是元认知决策，与'做什么步骤'(skill)正交。",
     inputSchema: {
       type: "object",
       properties: {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 自我模型 / 全局工作空间 —— selfModel.mjs
  *
  * 野心（用户原话）：比 skill 更优雅，能【替代 skill】；让直觉/记忆产生一种"意识"，
@@ -22,7 +22,7 @@
  *
  * 一个原型 = {protoFeat:情形质心, policy:{theta,muBias}, conf, n}。它就是"被压缩成直觉的 skill"。
  */
-// (self-contained: removed unused makeRng import from simEnv.mjs)
+// (self-contained: no external imports)
 
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
 function sigmoid(z) { return 1 / (1 + Math.exp(-z)); }
@@ -157,12 +157,14 @@ export class SelfModelAgent {
     this._sgd(proto, x, trueCrit);
     this.protos.push(proto);
     // 超上限淘汰:不是纯 LFU(只看使用频率 n)。纯 LFU 会先删"罕见但极关键"的原型
-    //   (n 小但 critEst 高),正是最不该忘的。改用 价值分 = n × (1 - critEst):
-    //   高关键原型(critEst→1)价值分被压低=>更难被删;高频低关键原型优先淘汰。
-    //   严格保证不超上限(删最低分,即使是刚新建的低关键原型也可被删=不无脑保留新原型)。
+    //   (n 小但 critEst 高),正是最不该忘的。
+    // ★保留优先级 retain = critEst(主导,∈[0,1]) + 0.1·n/(n+5)(次要使用项,≤0.1):
+    //   关键度【主导】——高关键原型(critEst→1)retain 高,即使罕见(n 小)也受保护;
+    //   只有在关键度相近时,使用频率才作次要加权(高频常用图式更值得留)。
+    //   淘汰 retain 【最低】者 = 既罕见又不关键的真·边角废原型(该删的)。
     while (this.protos.length > this.maxProto) {
-      const score = (p) => p.n * (1 - p.critEst(this._rfeat(p.protoFeat)));
-      let wi = 0; for (let i = 1; i < this.protos.length; i++) if (score(this.protos[i]) < score(this.protos[wi])) wi = i;
+      const retain = (p) => p.critEst(this._rfeat(p.protoFeat)) + 0.1 * (p.n / (p.n + 5));
+      let wi = 0; for (let i = 1; i < this.protos.length; i++) if (retain(this.protos[i]) < retain(this.protos[wi])) wi = i;
       this.protos.splice(wi, 1);
     }
     return proto;
@@ -251,7 +253,7 @@ export class SelfModelAgent {
     const predErr = proto ? proto.predErr : 1.0;
     // 透出量供报告/画图:
     //   eCostS1/eCostS2 = 成本敏感的期望代价(驱动点燃的真判据);
-    //   robGain/ecoCost = 等价竞价量, 与期望代价同向, 兼容旧图。
+    //   robGain/ecoCost = 等价竞价量(robGain=稳健出价, ecoCost=经济要价), 与期望代价同向, 兼容旧图。
     //   μ = 协调影子价; pCrit = 关键概率估计(被不确定度上偏)。
     return {
       ignite, critEst, theta, sim, surprise, predErr, mu: this.mu, protoIdx: this.z.activeProto,

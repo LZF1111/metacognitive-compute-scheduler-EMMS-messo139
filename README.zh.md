@@ -106,12 +106,13 @@ EMMS（能量最小化多尺度，李静海）研究的是这样一类系统：*
 
 | EMMS 量 | 符号 | 代码位置 |
 |---|---|---|
-| 稳健出价（System 2 收益） | `robGain` | `selfModel.mjs` → `decideAbstract()` |
-| 经济出价（System 1 代价） | `ecoCost` | `selfModel.mjs` → `decideAbstract()` |
-| 竞争裁决 | `ignite = robGain > ecoCost` | `selfModel.mjs` → `decideAbstract()` |
+| 可能关键概率 | `pCrit` | `selfModel.mjs` → `decideAbstract()` |
+| 维持 System 1 的期望成本 | `eCostS1` = `μ·pCrit·missPenalty` | `selfModel.mjs` → `decideAbstract()` |
+| 点燃 System 2 的期望成本 | `eCostS2` = `consultCost·overThinkCost + (1−pCrit)·overThinkCost + λ·ρ·overThinkCost` | `selfModel.mjs` → `decideAbstract()` |
+| 竞争裁决 | `ignite = eCostS1 > eCostS2` | `selfModel.mjs` → `decideAbstract()` |
 | 影子价更新（稳定性条件） | `μ` | `selfModel.mjs` → `feedback()` |
 
-`decide_step` 会把这些量原样返回（`rob_gain` / `eco_cost` / `mu` / `regime_shift`），你能实时看到这场 EMMS 竞价。**总览图里的图 (e) 画的就是这场竞价**：每个点是某一步的 `(ecoCost, robGain)`，对角线就是协调边界 `robGain = ecoCost`。
+`decide_step` 会把这些量原样返回（`p_crit` / `e_cost_s1` / `e_cost_s2` / `mu` / `regime_shift`）——所以**你审计的决策依据就是真正驱动选择的那个**（`ignite ⟺ e_cost_s1 > e_cost_s2`）。旧的 `rob_gain`/`eco_cost` 仍会返回供旧竞价图使用，但**不再是 mode 裁决规则**。**总览图里的图 (e)** 画的是每一步的期望成本比较，对角线就是协调边界 `eCostS1 = eCostS2`。
 
 ---
 
@@ -123,22 +124,28 @@ EMMS（能量最小化多尺度，李静海）研究的是这样一类系统：*
 
 $$\mathrm{sim} = \max_{p}\exp\!\Big(-\frac{\lVert x - \mathrm{protoFeat}_p\rVert^2}{2\tau}\Big),\qquad \mathrm{surprise} = 1-\mathrm{sim}$$
 
-**第二步——两个机制竞价：**
+**第二步——把两种结果定价为期望成本：**
 
-- **稳健**机制（System 2）想点燃；它的收益随"可能关键 × 没把握"上升：
+先把读出转成**可能关键概率**，情形越生疏（`predErr` 高、`sim` 低）越上调：
 
-$$\mathrm{robGain} = \mu\,(0.5 + \hat c)\,u,\qquad u = \mathrm{predErr}\,(2-\mathrm{sim})$$
+$$\hat p = \mathrm{clip}_{[0,1]}\big(\hat c + \tfrac12\,u\,(1-\hat c)\big),\qquad u = \mathrm{predErr}\,(2-\mathrm{sim})$$
 
-- **经济**机制（System 1）想省；它的代价 = 固定深审成本 + 上下文污染惩罚（上下文越脏越不该再深想）：
+- 维持 **System 1** 有误判真正关键步的风险，其期望成本由 μ 定价：
 
-$$\mathrm{ecoCost} = c + \lambda\,\rho$$
+$$\mathrm{eCostS1} = \mu\,\hat p\,\,\mathrm{missPenalty}$$
 
-**第三步——协调裁决：**
+- 点燃 **System 2** 总要付一次深调成本，若该步并不关键则白费，且上下文越脏惩罚越重：
 
-$$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{robGain} > \mathrm{ecoCost}) \ \lor\ \mathrm{regimeShift}\ }$$
+$$\mathrm{eCostS2} = \mathrm{consultCost}\cdot\mathrm{overThinkCost} + (1-\hat p)\,\mathrm{overThinkCost} + \lambda\,\rho\,\mathrm{overThinkCost}$$
+
+**第三步——协调裁决（选期望成本更低的一边）：**
+
+$$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{eCostS1} > \mathrm{eCostS2}) \ \lor\ \mathrm{regimeShift}\ }$$
 
 - 库空必点燃（无图式可依）；
 - `regimeShift`：任务中途活跃原型不再匹配（`sim < 0.7`）→ 强制重审 → 切换原型。**这是 loop 级元认知最该发光的地方。**
+
+> **这些常数从哪来（诚实说明）。** `missPenalty`、`overThinkCost`、`consultCost` 编码的是*"误判一个关键步比过度深思一个简单步严重多少"*。在这个原型里它们是**手调启发式常数**，选来匹配玩具成本模型（便宜=1、深思=5、误判=1+5）。真正部署时必须**从实测的 token 成本、延迟、你的重试/升级策略重新标定**——不主张它们是普适的。规则的*方向*（当维持便宜的期望成本超过深思的期望成本时点燃）才是贡献；具体数字是个标定旋钮。
 
 协调变量 **μ 是影子价**（KKT 对偶变量），靠稳定性条件自调：**失败→μ↑（更谨慎），成功→μ↓（更省）。**
 
@@ -163,17 +170,19 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{robGain} 
 
 所有图用 Times New Roman、300 dpi。用 `figures/gen_fig_data.mjs` + `figures/make_figures.py` 复现。
 
-### 7.1 长程任务 + 中途变性（60 任务 × 8 步）
+### 7.1 长程任务 + 中途变性（60 任务 × 8 步，20 seed）
 
 任务在第 30 个时切换规则（regime A → B，hint→关键度的映射反转）。代价模型：便宜=1，深思=5；误判关键步=浪费一次便宜尝试+强制升级（1+5）；非关键步深思=过度深思（浪费 4）。
 
-| 臂 | 总成本 | 省 | 误判 | 过度深思 |
-|---|---|---|---|---|
-| always-System2 | 2400 | 0% | 0 | 258 |
-| static-skill | 1884 | 21.5% | 128 | 97 |
-| **conscious（本文）** | **1617** | **32.6%** | **93** | **39** |
+| 臂 | 总成本 | 误判 | 过度深思 |
+|---|---|---|---|
+| always-System2 | 2480 ± 19 | 16 ± 4 | 309 ± 9 |
+| static-skill（difficulty ≥ τ） | 1798 ± 44 | 109 ± 9 | 126 ± 9 |
+| router-online（p > 0.5） | 1380 ± 61 | 147 ± 10 | 16 ± 8 |
+| cost-router（p > 0.8，同特征 + 同代价目标） | **1334 ± 46** | 171 ± 9 | 0 ± 0 |
+| **conscious（本文）** | 1590 ± 33 | **74 ± 11** | 79 ± 8 |
 
-> 本文比两个 baseline 都便宜，误判比静态规则少**且**过度深思远少于全程满力。在**成本敏感**目标下（误判关键步的惩罚重于过度深思），调度核靠比较期望成本来点燃，而不是去追一个校准代理指标。
+> **诚实解读——conscious 并*不*是最便宜的。** 一个用*相同三个特征 + 相同非对称代价目标*的成本敏感逻辑路由器（`p > 0.8` 时深思，这是便宜=1/深思=5/误判=6 下的贝叶斯最优阈值）是最便宜的臂（1334）——但它的**关键误判最多（171）**，因为单一全局阈值无法表达中途翻转的分段规则。conscious 比成本路由器多花 ~19%，但把关键误判减了 **57%**（Δ = −96.8，配对 *t*，p < 1e-16，Cohen's d = −12.8，胜率 100%）。它位于**成本-安全 Pareto 前沿**的不同点上：当漏掉一个关键步远比多几次深调贵时，conscious 占优；当只看原始 token 成本时，成本路由器赢。对静态规则而言，conscious 既更便宜*又*更安全（成本 Δ = −208，误判 Δ = −35，均 p < 1e-16）。
 
 ![arm cost](figures/fig1_arm_cost.png)
 
@@ -192,9 +201,9 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{robGain} 
 | static-skill（冻结阈值） | 52.4 ± 5.1% |
 | router-frozen | 55.6 ± 9.0% |
 | router-online（评测仍在线学） | 57.3 ± 3.4% |
-| **conscious（本文）** | **61.3 ± 2.4%** |
+| **conscious（本文）** | **60.3 ± 2.6%** |
 
-配对 t 检验，本文 vs router-online：Δ = 4.0 pt，**p = 2.8e-14**，Cohen's d = 1.40，胜率 90%。
+配对 t 检验，本文 vs router-online：Δ = 3.0 pt，**p = 8.3e-6**，Cohen's d = 0.82，胜率 77%。（复现：`node exp_shift.mjs`，30 seed。）
 
 > 单一全局阈值（skill/router）**既无法表达分段规律，也察觉不到切换**。调度器靠惊讶点燃、在线切换原型 → 突变后准确率显著更高。这是长程 / 中途变性任务的核心卖点。
 
@@ -214,6 +223,8 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{robGain} 
 
 - 这是**研究原型**，不是生产组件；超参经小规模标定。
 - *"意识"*是**功能性**比喻（GWT 点燃 + AST 自我模型 + 元认知），**不主张现象学意识**。
+- **上下文污染是个合成的模型规则，不是实测的 LLM 证据。** 在 benchmark 里，System 2 是被*程序化地*随 `context_pollution` 上升而故意变得更易失败的（`ecoCost = c + λρ`）。这只验证了机制在*这个模型里*按设计运转，但**不是**真实 LLM 长上下文退化的证据。要证实现实效应，需要在真实模型上端到端跑、实测准确率-上下文长度曲线。
+- 常数（`missPenalty = 6`、`overThinkCost = 4`、`consultCost = 0.1`、阈值 `p* = 0.8`）是**手设的风格化代价模型**，未拟合真实的 token/延迟/错误预算。代价不同，Pareto 点会移动。
 - 底座很强时（如 Opus）上游点燃很少用得上——升级阶梯已能兜底。优势最明显的场景是**长程 / 中途变性 / 弱模型或贵 token**。
 
 ---
@@ -258,7 +269,7 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{robGain} 
 | `get_stats` / `get_calibration` / `dump_prototypes` | 审计 | — |
 | `close_session` | 收尾 | 持久化技能 |
 
-`decide_step` 返回：`mode: "system1" | "system2"`，外加 `criticality_estimate / threshold / familiarity / surprise / confidence / mu / rob_gain / eco_cost / regime_shift / suggest_compact`。
+`decide_step` 返回：`mode: "system1" | "system2"`，加上**真正决策依据** `p_crit / e_cost_s1 / e_cost_s2 / decision_rule`（真正决定 `mode` 的规则：`ignite ⟺ e_cost_s1 > e_cost_s2`），再加 `criticality_estimate / threshold / familiarity / surprise / confidence / mu / regime_shift / suggest_compact`。旧的 `rob_gain / eco_cost` 仍会返回供旧竞价图使用，但**不是** mode 规则。
 
 ### 10.3 自检
 

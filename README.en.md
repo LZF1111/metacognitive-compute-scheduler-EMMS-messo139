@@ -106,12 +106,13 @@ The key EMMS insight reused here: **a single global average/threshold is wrong.*
 
 | EMMS quantity | symbol | code location |
 |---|---|---|
-| robustness bid (System 2 gain) | `robGain` | `selfModel.mjs` → `decideAbstract()` |
-| economy bid (System 1 cost) | `ecoCost` | `selfModel.mjs` → `decideAbstract()` |
-| competition decision | `ignite = robGain > ecoCost` | `selfModel.mjs` → `decideAbstract()` |
+| likely-critical probability | `pCrit` | `selfModel.mjs` → `decideAbstract()` |
+| expected cost of staying System 1 | `eCostS1` = `μ·pCrit·missPenalty` | `selfModel.mjs` → `decideAbstract()` |
+| expected cost of igniting System 2 | `eCostS2` = `consultCost·overThinkCost + (1−pCrit)·overThinkCost + λ·ρ·overThinkCost` | `selfModel.mjs` → `decideAbstract()` |
+| competition decision | `ignite = eCostS1 > eCostS2` | `selfModel.mjs` → `decideAbstract()` |
 | shadow price update (stability condition) | `μ` | `selfModel.mjs` → `feedback()` |
 
-These exact quantities are returned by `decide_step` as `rob_gain`, `eco_cost`, `mu`, `regime_shift` — so you can watch the EMMS auction happen live. **Figure (e) in the overview is literally this auction**: each point is one step's `(ecoCost, robGain)`; the diagonal is the coordination boundary `robGain = ecoCost`.
+These exact quantities are returned by `decide_step` as `p_crit`, `e_cost_s1`, `e_cost_s2`, `mu`, `regime_shift` — so the **decision basis you audit is the one that actually drove the choice** (`ignite ⟺ e_cost_s1 > e_cost_s2`). The legacy `rob_gain`/`eco_cost` are still returned for the old bidding figure but are **no longer the mode decision rule**. **Figure (e) in the overview** plots each step's expected-cost comparison; the diagonal is the coordination boundary `eCostS1 = eCostS2`.
 
 ---
 
@@ -123,22 +124,28 @@ Each step is one EMMS auction (see §4), expressed in formulas.
 
 $$\mathrm{sim} = \max_{p}\exp\!\Big(-\frac{\lVert x - \mathrm{protoFeat}_p\rVert^2}{2\tau}\Big),\qquad \mathrm{surprise} = 1-\mathrm{sim}$$
 
-**Step 2 — two mechanisms bid:**
+**Step 2 — price the two outcomes as expected costs:**
 
-- The **robust** mechanism (System 2) wants to ignite; its gain rises with *"likely critical × uncertain"*:
+First convert the read-out into a **likely-critical probability**, inflating it when the situation is unfamiliar (high `predErr`, low `sim`):
 
-$$\mathrm{robGain} = \mu\,(0.5 + \hat c)\,u,\qquad u = \mathrm{predErr}\,(2-\mathrm{sim})$$
+$$\hat p = \mathrm{clip}_{[0,1]}\big(\hat c + \tfrac12\,u\,(1-\hat c)\big),\qquad u = \mathrm{predErr}\,(2-\mathrm{sim})$$
 
-- The **economy** mechanism (System 1) wants to save; its cost = fixed consult cost + context-pollution penalty (the dirtier the context, the less you should think more):
+- staying **System 1** risks mishandling a truly-critical step; its expected cost is priced by μ:
 
-$$\mathrm{ecoCost} = c + \lambda\,\rho$$
+$$\mathrm{eCostS1} = \mu\,\hat p\,\,\mathrm{missPenalty}$$
 
-**Step 3 — coordinate & decide:**
+- igniting **System 2** always pays a deep-call cost, wastes effort when the step was *not* critical, and is penalised more when the context is already dirty:
 
-$$\boxed{\ \mathrm{ignite} = (\text{library empty}) \ \lor\ (\mathrm{robGain} > \mathrm{ecoCost}) \ \lor\ \mathrm{regimeShift}\ }$$
+$$\mathrm{eCostS2} = \mathrm{consultCost}\cdot\mathrm{overThinkCost} + (1-\hat p)\,\mathrm{overThinkCost} + \lambda\,\rho\,\mathrm{overThinkCost}$$
+
+**Step 3 — coordinate & decide (pick the cheaper expected outcome):**
+
+$$\boxed{\ \mathrm{ignite} = (\text{library empty}) \ \lor\ (\mathrm{eCostS1} > \mathrm{eCostS2}) \ \lor\ \mathrm{regimeShift}\ }$$
 
 - empty library → must ignite (no schema to lean on);
 - `regimeShift`: if the active prototype no longer matches mid-task (`sim < 0.7`) → forced re-examination → switch prototype. **This is where loop-level metacognition shines.**
+
+> **Where the constants come from (honest note).** `missPenalty`, `overThinkCost`, `consultCost` encode *"how much worse is mishandling a critical step than over-thinking an easy one."* In this prototype they are **hand-tuned heuristics** chosen to match the toy cost model (cheap = 1, deep = 5, mishandle = 1 + 5). For a real deployment they must be **re-derived from measured token cost, latency, and your retry/escalation policy** — they are not claimed to be universal. The *direction* of the rule (ignite when the expected cost of staying cheap exceeds the expected cost of thinking) is the contribution; the exact numbers are a calibration knob.
 
 The coordination variable **μ is a shadow price** (the KKT dual variable). It self-tunes via a stability condition: **fail → μ↑ (more cautious), succeed → μ↓ (more frugal).**
 
@@ -163,17 +170,19 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 All figures use Times New Roman, 300 dpi. Reproduce with `figures/gen_fig_data.mjs` + `figures/make_figures.py`.
 
-### 7.1 Long-horizon task with mid-task regime shift (60 tasks × 8 steps)
+### 7.1 Long-horizon task with mid-task regime shift (60 tasks × 8 steps, 20 seeds)
 
 The task switches rule at task 30 (regime A → B, the hint→criticality mapping reverses). Cost model: cheap = 1, deep = 5; mishandling a critical step = wasted cheap try + forced upgrade (1+5); deep on a non-critical step = over-thinking (wastes 4).
 
-| arm | total cost | save | mishandled | over-thinking |
-|---|---|---|---|---|
-| always-System2 | 2400 | 0% | 0 | 258 |
-| static-skill | 1884 | 21.5% | 128 | 97 |
-| **conscious (ours)** | **1617** | **32.6%** | **93** | **39** |
+| arm | total cost | mishandled | over-thinking |
+|---|---|---|---|
+| always-System2 | 2480 ± 19 | 16 ± 4 | 309 ± 9 |
+| static-skill (difficulty ≥ τ) | 1798 ± 44 | 109 ± 9 | 126 ± 9 |
+| router-online (p > 0.5) | 1380 ± 61 | 147 ± 10 | 16 ± 8 |
+| cost-router (p > 0.8, same features + same cost objective) | **1334 ± 46** | 171 ± 9 | 0 ± 0 |
+| **conscious (ours)** | 1590 ± 33 | **74 ± 11** | 79 ± 8 |
 
-> Ours is cheaper than both baselines, with fewer mishandles than the static rule **and** far less over-thinking than always-on. Under a *cost-sensitive* objective (mishandling a critical step is penalised more than over-thinking), the scheduler ignites by comparing expected costs rather than chasing a calibration proxy.
+> **Honest reading — conscious is *not* the cheapest.** A cost-sensitive logistic router using the *same three features and the same asymmetric cost objective* (deep when `p > 0.8`, the Bayes-optimal threshold for cheap=1/deep=5/miss=6) is the cheapest arm (1334) — but it has the **most critical mishandles (171)** because one global threshold cannot express a piecewise rule that flips mid-task. Conscious spends ~19% more than the cost-router but cuts critical mishandles by **57%** (Δ = −96.8, paired *t*, p < 1e-16, Cohen's d = −12.8, win-rate 100%). It occupies a different point on the **cost-vs-safety Pareto frontier**: when a missed critical step is far costlier than a few extra deep calls, conscious dominates; when raw token cost is all that matters, the cost-router wins. Against the static rule, conscious is both cheaper *and* safer (cost Δ = −208, mishandle Δ = −35, both p < 1e-16).
 
 ![arm cost](figures/fig1_arm_cost.png)
 
@@ -192,9 +201,9 @@ Post-shift decision accuracy (deliberation ↔ true criticality alignment):
 | static-skill (frozen threshold) | 52.4 ± 5.1% |
 | router-frozen | 55.6 ± 9.0% |
 | router-online (still learning at test) | 57.3 ± 3.4% |
-| **conscious (ours)** | **61.3 ± 2.4%** |
+| **conscious (ours)** | **60.3 ± 2.6%** |
 
-Paired t-test, ours vs router-online: Δ = 4.0 pt, **p = 2.8e-14**, Cohen's d = 1.40, win-rate 90%.
+Paired t-test, ours vs router-online: Δ = 3.0 pt, **p = 8.3e-6**, Cohen's d = 0.82, win-rate 77%. (Reproduce: `node exp_shift.mjs`, 30 seeds.)
 
 > A single global threshold (skill/router) **cannot express a piecewise rule and cannot notice the switch**. The scheduler ignites on surprise and switches prototypes online → significantly higher post-shift accuracy. This is the core selling point for long-horizon / mid-task-shift tasks.
 
@@ -214,6 +223,8 @@ Honest boundaries:
 
 - This is a **research prototype**, not a production component; hyper-parameters are calibrated at small scale.
 - *"Conscious"* is a **functional** metaphor (GWT ignition + AST self-model + metacognition). **No claim of phenomenal consciousness.**
+- **Context pollution is a synthetic model rule, not measured LLM evidence.** In the benchmark, System 2 is *programmatically* made to fail more as `context_pollution` rises (`ecoCost = c + λρ`). This validates that the mechanism behaves as designed *inside the model*, but it is **not** evidence of real long-context degradation in an actual LLM. Confirming the real-world effect requires end-to-end runs on a live model with measured accuracy-vs-context-length.
+- The constants (`missPenalty = 6`, `overThinkCost = 4`, `consultCost = 0.1`, threshold `p* = 0.8`) are **hand-set to a stylised cost model**, not fit to a real token/latency/error budget. Different costs move the Pareto point.
 - On a strong base model (e.g. Opus), the upstream ignition is rarely needed — the upgrade ladder already covers it. The advantage is clearest in **long-horizon / mid-task-shift / weak-model-or-expensive-token** regimes.
 
 ---
@@ -258,7 +269,7 @@ Requires Node.js ≥ 18. No build, no dependencies.
 | `get_stats` / `get_calibration` / `dump_prototypes` | audit | — |
 | `close_session` | end | persists skills |
 
-`decide_step` returns: `mode: "system1" | "system2"`, plus `criticality_estimate / threshold / familiarity / surprise / confidence / mu / rob_gain / eco_cost / regime_shift / suggest_compact`.
+`decide_step` returns: `mode: "system1" | "system2"`, the **real decision basis** `p_crit / e_cost_s1 / e_cost_s2 / decision_rule` (the rule that actually sets `mode`: `ignite ⟺ e_cost_s1 > e_cost_s2`), plus `criticality_estimate / threshold / familiarity / surprise / confidence / mu / regime_shift / suggest_compact`. The legacy `rob_gain / eco_cost` are still returned for the old bidding figure but are **not** the mode rule.
 
 ### 10.3 Self-checks
 

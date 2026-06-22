@@ -1,4 +1,4 @@
-/**
+﻿/**
  * consciousCore.mjs —— 意识核的「会话管理 + 持久化」封装，供 MCP 服务调用。
  *
  * 设计目标：让【任何智能体】都能把"这一步该用多大算力 / 要不要停下重想"这个元认知决策，
@@ -11,9 +11,10 @@
  *   - context_pollution∈[0,1]：当前上下文窗口有多满/多脏（= 已用 token / 窗口；这是真实量）
  *
  * 核返回【决策】：
- *   - mode: "system1"(直觉/便宜) | "system2"(点燃/深思)，由竞价裁决 robGain>ecoCost 直接决定
+ *   - mode: "system1"(直觉/便宜) | "system2"(点燃/深思)，由【成本敏感期望代价】 e_cost_s1 > e_cost_s2 直接决定
  *   - criticality_estimate：核估计的真关键度
- *   - rob_gain / eco_cost：竞价过程量，便于调用方理解为何如此决策
+ *   - p_crit / e_cost_s1 / e_cost_s2：真实决策依据(外部审计据此理解 mode 为何如此)
+ *   - rob_gain / eco_cost：等价竞价量(非判据,仅兼容旧可视化)
  *
  * 事后调用方回报【真实结果】(report_outcome / task_feedback) → 核自学，更新原型库与 μ。
  *
@@ -106,7 +107,9 @@ export class ConsciousCore {
 
   /**
    * 核心决策:这一步走 System1(直觉/便宜) 还是 System2(点燃/深思)。
-   * mode 由 EMMS 竞价裁决直接驱动:robGain > ecoCost(或库空/变性)即点燃 System2。
+   * mode 由【成本敏感期望代价】直接驱动:eCostS1 > eCostS2(或库空/变性)即点燃 System2。
+   *   eCostS1 = μ·pCrit·missPenalty  (便宜处理的漏判期望代价)
+   *   eCostS2 = consultCost·overThinkCost + (1−pCrit)·overThinkCost + 污染惩罚 (深思的期望代价)
    * @param obs {criticality_hint, difficulty_hint, progress, context_pollution}
    */
   decide(sessionId, obs = {}) {
@@ -116,7 +119,7 @@ export class ConsciousCore {
     const pollution = obs.context_pollution != null ? clamp01(obs.context_pollution) : agent.z.pollution;
     const plan = agent.decideAbstract(x, pollution);
 
-    // 竞价裁决是唯一的 mode 判据:plan.ignite = (库空 || robGain > ecoCost || regimeShift)。
+    // 成本敏感裁决是唯一的 mode 判据:plan.ignite = (库空 || eCostS1 > eCostS2 || regimeShift)。
     const mode = plan.ignite ? "system2" : "system1";
 
     // 要深思但上下文已脏 → 建议先整理上下文再深思。阈值随 mu 调(越谨慎越早建议整理)。
@@ -136,10 +139,16 @@ export class ConsciousCore {
       confidence: +(1 - plan.predErr).toFixed(4),
       mu: +plan.mu.toFixed(4),
       suggest_compact: suggestCompact,
-      // EMMS 竞价原始量:rob_gain 稳健机制(S2)出价,eco_cost 经济机制(S1)要价,mu 协调影子价。
+      // ★真实决策依据(外部审计据此理解 mode 为何如此):成本敏感期望代价比较。
+      //   ignite ⟺ e_cost_s1 > e_cost_s2(或库空/变性)。p_crit = 关键概率(被不确定度上偏)。
+      decision_rule: "ignite ⟺ e_cost_s1 > e_cost_s2 (or empty library / regime shift)",
+      p_crit: plan.pCrit != null ? +plan.pCrit.toFixed(4) : null,
+      e_cost_s1: plan.eCostS1 != null ? +plan.eCostS1.toFixed(4) : null,
+      e_cost_s2: plan.eCostS2 != null ? +plan.eCostS2.toFixed(4) : null,
+      regime_shift: !!plan.regimeShift,
+      // 兼容旧图的等价竞价量(非 mode 判据,仅供可视化):rob_gain/eco_cost 与期望代价同向。
       rob_gain: plan.robGain != null ? +plan.robGain.toFixed(4) : null,
       eco_cost: plan.ecoCost != null ? +plan.ecoCost.toFixed(4) : null,
-      regime_shift: !!plan.regimeShift,
       _x: x, _pollution: pollution,
     };
   }
