@@ -44,12 +44,13 @@ function genTask(rng, N, regime) {
   const steps = [];
   for (let i = 0; i < N; i++) {
     const dHint = rng();                              // 弱线索：难度提示
-    // regime A: 难=关键; regime B: 线索反转(简单实则致命) + 噪声
-    const base = regime === "A" ? dHint : 1 - dHint;
+    const cHint = rng();                              // 弱线索：关键度提示(独立采样,难≠关键)
+    // regime A: 关键度线索为主+难度加成; regime B: 线索反转(表面不关键实则致命) + 噪声
+    const base = regime === "A" ? (0.7 * cHint + 0.3 * dHint) : (0.7 * (1 - cHint) + 0.3 * (1 - dHint));
     const trueCrit = Math.max(0, Math.min(1, base + (rng() - 0.5) * 0.25));
     steps.push({
       difficulty_hint: +dHint.toFixed(3),
-      criticality_hint: +dHint.toFixed(3),            // 表面关键度也只能看到 dHint（线索弱）
+      criticality_hint: +cHint.toFixed(3),            // 独立于难度的弱线索
       trueCrit: +trueCrit.toFixed(3),
       progress: +(i / N).toFixed(3),
     });

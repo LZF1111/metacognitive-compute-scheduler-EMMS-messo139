@@ -1,4 +1,4 @@
-﻿/**
+/**
  * gen_fig_data.mjs —— 采集论文/README 配图所需的全部数据，统一导出为 fig_data.json。
  *
  * 复用真实调度核 SelfModelAgent（与 MCP server 同一底座），跑一个【长程 + 中途变性】实验，
@@ -39,11 +39,12 @@ const SKILL_TH = 0.6;     // static-skill 硬阈值
 function genTask(rng, N, regime) {
   const steps = [];
   for (let i = 0; i < N; i++) {
-    const dHint = rng();
-    const base = regime === "A" ? dHint : 1 - dHint;   // B：线索反转
+    const dHint = rng();                               // 难度线索
+    const cHint = rng();                               // 关键度线索(独立采样,难≠关键)
+    const base = regime === "A" ? (0.7 * cHint + 0.3 * dHint) : (0.7 * (1 - cHint) + 0.3 * (1 - dHint)); // B：线索反转
     const trueCrit = Math.max(0, Math.min(1, base + (rng() - 0.5) * 0.25));
     steps.push({
-      criticality_hint: +dHint.toFixed(3),
+      criticality_hint: +cHint.toFixed(3),
       difficulty_hint: +dHint.toFixed(3),
       progress: +(i / N).toFixed(3),
       trueCrit: +trueCrit.toFixed(3),
@@ -138,9 +139,9 @@ const shiftBars = {
     { name: "static-skill", mean: 52.4, std: 5.1 },
     { name: "router-frozen", mean: 55.6, std: 9.0 },
     { name: "router-online", mean: 57.3, std: 3.4 },
-    { name: "conscious", mean: 62.5, std: 2.6 },
+    { name: "conscious", mean: 61.3, std: 2.4 },
   ],
-  significance: "conscious vs router-online: Δ=5.2pt, p=7.5e-15, d=1.43, 胜率93%",
+  significance: "conscious vs router-online: Δ=4.0pt, p=2.8e-14, d=1.40, 胜率90%",
 };
 
 const out = {

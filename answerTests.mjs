@@ -17,20 +17,24 @@ const CHEAP = 1, DEEP = 5, CRIT_TH = 0.55;
 
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-// 领域 = 一个 hint→trueCrit 的映射规律。两个领域规律不同，模拟不同任务族。
+// 领域 = 一个 (难度,关键度线索,进度)→trueCrit 的映射规律。两个领域规律不同，模拟不同任务族。
+// ★特征独立(评审#5): difficulty_hint 与 criticality_hint 是两个【独立采样】的信号，不再复制同一个 d。
+//   难≠关键——领域规律决定二者如何共同(且各自部分地)预测真关键度。
 const DOMAINS = {
-  // 领域1(coding 类)：难度高 且 进度靠后 = 关键（收尾的难步最致命）
-  coding: (d, prog, rng) => clamp01(0.6 * d + 0.4 * prog + (rng() - 0.5) * 0.2),
-  // 领域2(ops 类)：难度低但进度早 = 关键（开局的小配置错了全盘皆输），与领域1几乎相反
-  ops: (d, prog, rng) => clamp01(0.7 * (1 - d) + 0.3 * (1 - prog) + (rng() - 0.5) * 0.2),
+  // 领域1(coding 类)：关键度线索为主 + 难度高且进度靠后加成（收尾的难步最致命）
+  coding: (d, c, prog, rng) => clamp01(0.5 * c + 0.3 * d + 0.2 * prog + (rng() - 0.5) * 0.2),
+  // 领域2(ops 类)：线索反转——表面"不关键/简单/早期"实则致命，与领域1几乎相反
+  ops: (d, c, prog, rng) => clamp01(0.5 * (1 - c) + 0.3 * (1 - d) + 0.2 * (1 - prog) + (rng() - 0.5) * 0.2),
 };
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
 
 function genTask(rng, N, domainFn) {
   const steps = [];
   for (let i = 0; i < N; i++) {
-    const d = rng(), prog = i / N;
-    steps.push({ difficulty_hint: +d.toFixed(3), criticality_hint: +d.toFixed(3), progress: +prog.toFixed(3), trueCrit: +domainFn(d, prog, rng).toFixed(3) });
+    const d = rng();           // 难度线索
+    const c = rng();           // 关键度线索(独立采样,与难度解耦)
+    const prog = i / N;
+    steps.push({ difficulty_hint: +d.toFixed(3), criticality_hint: +c.toFixed(3), progress: +prog.toFixed(3), trueCrit: +domainFn(d, c, prog, rng).toFixed(3) });
   }
   return steps;
 }
@@ -77,7 +81,9 @@ async function runBatch(cli, sid, tasks, { useCompact = false } = {}) {
 
 (async () => {
   const N = 8;
-
+  // ★评审#4:不再打印固定结论,改为带阈值的硬断言。任一不成立则脚本非零退出。
+  const checks = [];
+  const assert = (cond, msg) => { checks.push({ cond, msg }); console.log(`  [${cond ? "PASS" : "FAIL"}] ${msg}`); };
   // ════════ (A) 越学越聪明 + 抗变性 ════════
   console.log("══════ (A) 越学越聪明吗? 学习曲线 (每批20任务×8步) ══════");
   {
@@ -97,7 +103,7 @@ async function runBatch(cli, sid, tasks, { useCompact = false } = {}) {
     }
     const cal = await cli.tool("get_calibration", { sessionId: sid });
     console.log(`  → 全程: 前半MAE=${cal.firstHalf.mae} 近半MAE=${cal.recentHalf.mae}  improving=${cal.improving}`);
-    console.log("  解读: coding 4批内 MAE/误判应下行(越学越准); 切ops后短暂回升再收敛(察觉变性重学).");
+    assert(cal.recentHalf.mae <= cal.firstHalf.mae + 0.02, `(A) 近半MAE(${cal.recentHalf.mae}) 不高于前半(${cal.firstHalf.mae})+容差 → 学习/抗变性后能收敛`);
     cli.close();
   }
 
@@ -117,7 +123,12 @@ async function runBatch(cli, sid, tasks, { useCompact = false } = {}) {
       native[dom] = r;
       console.log(`  原生学[${dom}]: 成本=${String(r.cost).padStart(5)} 误判=${String(r.mishandled).padStart(3)}/${r.steps}`);
     }
-    console.log("  → 两域原生都收敛(误判率低) = 同一套机制能学不同领域 = 机制通用.");
+    // 机制通用:两域原生学误判率都应明显低于"瞎猜"基线(约 CRIT_TH 占比≈45% 步是关键)。
+    const baselineMissRate = 0.45;
+    for (const dom of ["coding", "ops"]) {
+      const missRate = native[dom].mishandled / native[dom].steps;
+      assert(missRate < baselineMissRate * 0.7, `(B-机制通用) ${dom} 原生误判率 ${(missRate * 100).toFixed(1)}% < 基线70% → 同一机制能学不同领域`);
+    }
 
     // B2: 在 coding 学满 → 锁死 → 同一库分别测本域/跨域(同种子同任务结构)
     const nsC = `B-lib-${Date.now()}`; const sidT = "Bt";
@@ -138,7 +149,8 @@ async function runBatch(cli, sid, tasks, { useCompact = false } = {}) {
     console.log(`  coding库(锁死)→本域coding: 成本=${String(rIn.cost).padStart(5)} 误判=${String(rIn.mishandled).padStart(3)}/${rIn.steps}`);
     console.log(`  coding库(锁死)→跨域ops:    成本=${String(rOut.cost).padStart(5)} 误判=${String(rOut.mishandled).padStart(3)}/${rOut.steps}`);
     const ratio = rIn.mishandled > 0 ? (rOut.mishandled / rIn.mishandled).toFixed(1) : "∞";
-    console.log(`  → 跨域误判是本域的 ${ratio}× = 学到的知识是【领域专用】的(机制通用,知识分域).`);
+    console.log(`  → 跨域误判是本域的 ${ratio}× (本域${rIn.mishandled} vs 跨域${rOut.mishandled})`);
+    assert(rOut.mishandled > rIn.mishandled * 1.5, `(B-知识分域) 跨域误判(${rOut.mishandled}) > 本域(${rIn.mishandled})×1.5 → 学到的知识是领域专用的`);
     cli.close();
   }
 
@@ -179,6 +191,7 @@ async function runBatch(cli, sid, tasks, { useCompact = false } = {}) {
       }
       return { cost: +cost.toFixed(1), mishandled, steps, compactions };
     }
+    const cRes = {};
     for (const useCompact of [false, true]) {
       const cli = makeClient(); await handshake(cli);
       const ns = `C-${useCompact}-${Date.now()}`; const sid = "C";
@@ -187,11 +200,19 @@ async function runBatch(cli, sid, tasks, { useCompact = false } = {}) {
       const tasksFixed = Array.from({ length: 40 }, () => genTask(rng, Nlong, DOMAINS.coding));
       const dice = mulberry32(99999); // 失败骰子也固定
       const r = await runBatchP(cli, sid, tasksFixed, useCompact, dice);
+      cRes[useCompact ? "on" : "off"] = r;
       console.log(`  ${useCompact ? "采纳整理建议" : "忽略整理建议"}: 成本=${String(r.cost).padStart(6)} 误判=${String(r.mishandled).padStart(3)}/${r.steps} 整理次数=${r.compactions}`);
       cli.close();
     }
-    console.log("  解读: 长程脏上下文里,采纳整理→压住污染→深思不再'想岔'→误判↓; 即便整理有小成本,净更优.");
+    // 整理治理必须真的减少误判(否则框架的污染治理主张不成立),且总成本不应反而更高。
+    assert(cRes.on.mishandled < cRes.off.mishandled, `(C-污染治理) 采纳整理误判(${cRes.on.mishandled}) < 忽略(${cRes.off.mishandled}) → 治理压住"越想越乱"`);
+    assert(cRes.on.cost <= cRes.off.cost, `(C-净收益) 采纳整理总成本(${cRes.on.cost}) <= 忽略(${cRes.off.cost}) → 治理净更优(整理小成本被省下的返工抵消)`);
   }
 
+  // ════════ 汇总断言 ════════
+  const failed = checks.filter((c) => !c.cond);
+  console.log(`\n══════ 断言汇总: ${checks.length - failed.length}/${checks.length} 通过 ══════`);
+  if (failed.length) { console.log("✗ 失败:\n" + failed.map((c) => "  - " + c.msg).join("\n")); process.exit(1); }
+  console.log("✓ 三个根本问题(学习/通用vs分域/污染治理)均通过带阈值的断言。");
   process.exit(0);
 })().catch((e) => { console.error("FAIL:", e); process.exit(1); });

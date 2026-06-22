@@ -1,4 +1,4 @@
-﻿/**
+/**
  * consciousCore.mjs —— 意识核的「会话管理 + 持久化」封装，供 MCP 服务调用。
  *
  * 设计目标：让【任何智能体】都能把"这一步该用多大算力 / 要不要停下重想"这个元认知决策，
@@ -77,7 +77,7 @@ export class ConsciousCore {
 
   /**
    * 开一个会话。namespace 决定复用哪套原型库（同 namespace = 共享/累积技能）。
-   * opts 可覆盖核的超参（igniteTh/polluteWeight/...），不传用经过实验标定的默认值。
+   * opts 可覆盖核的超参（missPenalty/overThinkCost/polluteWeight/...），不传用经过实验标定的默认值。
    */
   openSession(sessionId, namespace = "default", opts = {}) {
     const agent = new SelfModelAgent(opts);
@@ -105,7 +105,8 @@ export class ConsciousCore {
   }
 
   /**
-   * ★核心决策：这一步该 System1(直觉/便宜) 还是 System2(点燃/深思)。
+   * 核心决策:这一步走 System1(直觉/便宜) 还是 System2(点燃/深思)。
+   * mode 由 EMMS 竞价裁决直接驱动:robGain > ecoCost(或库空/变性)即点燃 System2。
    * @param obs {criticality_hint, difficulty_hint, progress, context_pollution}
    */
   decide(sessionId, obs = {}) {
@@ -116,15 +117,12 @@ export class ConsciousCore {
     const plan = agent.decideAbstract(x, pollution);
 
     // 竞价裁决是唯一的 mode 判据:plan.ignite = (库空 || robGain > ecoCost || regimeShift)。
-    // 这比静态阈值多看了不确定性(uncert)与上下文污染:没把握就深思,上下文脏了就收手。
     const mode = plan.ignite ? "system2" : "system1";
 
-    // 要深思但上下文已脏(污染高)→ 建议先整理上下文再深思,避免越想越乱。
-    // 阈值随 mu 调:越谨慎越早建议整理。
+    // 要深思但上下文已脏 → 建议先整理上下文再深思。阈值随 mu 调(越谨慎越早建议整理)。
     const compactTh = clamp01(0.6 - 0.1 * (agent.mu - 1));
     const suggestCompact = mode === "system2" && pollution > compactTh;
 
-    // 记一条待评分（校准自监控）。
     s.calib.pending = { x, critEst: plan.critEst, mode, theta: plan.theta };
     s.lastDecide = { x, mode };
 
@@ -133,16 +131,16 @@ export class ConsciousCore {
       ignite: mode === "system2",
       criticality_estimate: +plan.critEst.toFixed(4),
       threshold: +plan.theta.toFixed(4),
-      familiarity: +plan.sim.toFixed(4),      // 越接近 1 = 越像见过的情形
-      surprise: +plan.surprise.toFixed(4),    // 越大 = 越陌生
+      familiarity: +plan.sim.toFixed(4),
+      surprise: +plan.surprise.toFixed(4),
       confidence: +(1 - plan.predErr).toFixed(4),
       mu: +plan.mu.toFixed(4),
-      suggest_compact: suggestCompact,        // 建议先压缩/整理上下文再深思
-      // EMMS 竞争-协调的原始竞价量,供分析竞价裁决与 mu 影子价收敛。
-      rob_gain: plan.robGain != null ? +plan.robGain.toFixed(4) : null,   // 稳健机制(S2)出价
-      eco_cost: plan.ecoCost != null ? +plan.ecoCost.toFixed(4) : null,   // 经济机制(S1)要价
-      regime_shift: !!plan.regimeShift,       // 是否触发中途变性强制重审
-      _x: x, _pollution: pollution,           // 透传给 report_outcome 复用同一签名
+      suggest_compact: suggestCompact,
+      // EMMS 竞价原始量:rob_gain 稳健机制(S2)出价,eco_cost 经济机制(S1)要价,mu 协调影子价。
+      rob_gain: plan.robGain != null ? +plan.robGain.toFixed(4) : null,
+      eco_cost: plan.ecoCost != null ? +plan.ecoCost.toFixed(4) : null,
+      regime_shift: !!plan.regimeShift,
+      _x: x, _pollution: pollution,
     };
   }
 

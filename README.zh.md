@@ -169,11 +169,11 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{robGain} 
 
 | 臂 | 总成本 | 省 | 误判 | 过度深思 |
 |---|---|---|---|---|
-| always-System2 | 2400 | 0% | 0 | 270 |
-| static-skill | 1813 | 24.5% | 117 | 94 |
-| **conscious（本文）** | **1658** | **30.9%** | **102** | **59** |
+| always-System2 | 2400 | 0% | 0 | 258 |
+| static-skill | 1884 | 21.5% | 128 | 97 |
+| **conscious（本文）** | **1617** | **32.6%** | **93** | **39** |
 
-> 本文比两个 baseline 都便宜，误判比静态规则少**且**过度深思远少于全程满力。（`complexTask.mjs` 里 MCP 调参版可达 39.1% 省比。）
+> 本文比两个 baseline 都便宜，误判比静态规则少**且**过度深思远少于全程满力。在**成本敏感**目标下（误判关键步的惩罚重于过度深思），调度核靠比较期望成本来点燃，而不是去追一个校准代理指标。
 
 ![arm cost](figures/fig1_arm_cost.png)
 
@@ -192,9 +192,9 @@ $$\boxed{\ \mathrm{ignite} = (\text{原型库为空}) \ \lor\ (\mathrm{robGain} 
 | static-skill（冻结阈值） | 52.4 ± 5.1% |
 | router-frozen | 55.6 ± 9.0% |
 | router-online（评测仍在线学） | 57.3 ± 3.4% |
-| **conscious（本文）** | **62.5 ± 2.6%** |
+| **conscious（本文）** | **61.3 ± 2.4%** |
 
-配对 t 检验，本文 vs router-online：Δ = 5.2 pt，**p = 7.5e-15**，Cohen's d = 1.43，胜率 93%。
+配对 t 检验，本文 vs router-online：Δ = 4.0 pt，**p = 2.8e-14**，Cohen's d = 1.40，胜率 90%。
 
 > 单一全局阈值（skill/router）**既无法表达分段规律，也察觉不到切换**。调度器靠惊讶点燃、在线切换原型 → 突变后准确率显著更高。这是长程 / 中途变性任务的核心卖点。
 

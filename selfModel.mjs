@@ -42,7 +42,6 @@ function dist2(a, b) { let s = 0; for (let i = 0; i < a.length; i++) { const d =
 export class SelfModelAgent {
   constructor(opts = {}) {
     this.protos = [];                 // 原型库（自己长出的 skill）
-    this.igniteTh = opts.igniteTh ?? 0.45;  // 点燃阈值（惊讶超过则调 System 2）
     this.simTau = opts.simTau ?? 0.18;       // 相似度核宽：太大→不同关键度的情形被并成一个原型(欠分化)；太小→原型永不复用。0.18 让易/难题各自成型。
     this.mergeSim = opts.mergeSim ?? 0.7;    // ★合并阈值：新情形与最近原型相似度>此→合并而非新建(防膨胀)。配合 simTau 让真正相似的才合并。
     this.maxProto = opts.maxProto ?? 12;     // ★原型库上限（意识是稀缺的：少量稳定图式，满了淘汰最弱）
@@ -51,6 +50,12 @@ export class SelfModelAgent {
     this.muLr = opts.muLr ?? 0.10;
     this.consultCost = opts.consultCost ?? 0.10;   // 经济机制：一次点燃的固定代价
     this.polluteWeight = opts.polluteWeight ?? 0.6; // 经济机制：当前上下文污染对"再点燃"的抑制权重
+    // ── 成本敏感决策参数(直接对齐真实代价的不对称性)──
+    //   missPenalty = 漏判一个关键步的代价(System1处理了关键步→失败→还得升级重做,很贵)。
+    //   overThinkCost = 在非关键步过度深思的代价(浪费算力+污染上下文)。
+    //   真实里 missPenalty >> overThinkCost(漏判要重做,过度只是浪费),故点燃判定本就该偏谨慎。
+    this.missPenalty = opts.missPenalty ?? 6;      // 漏判关键步的代价(complexTask: 1次便宜白跑+5强模型重做)
+    this.overThinkCost = opts.overThinkCost ?? 4;  // 非关键步过度深思的代价(complexTask: 浪费4)
     this.deepEwma = 0.5;
     this.canGrow = opts.canGrow ?? true;     // 能否自生原型（关掉=只能用已有=类 skill 库）
     this.canShift = opts.canShift ?? true;   // 能否中途切换活跃原型（关掉=锁死，模拟 skill 派发）
@@ -151,10 +156,14 @@ export class SelfModelAgent {
     };
     this._sgd(proto, x, trueCrit);
     this.protos.push(proto);
-    // ★超上限：淘汰使用最少(n 最小)的原型（LFU），保持意识稀缺且稳定。
-    if (this.protos.length > this.maxProto) {
-      let wi = 0; for (let i = 1; i < this.protos.length; i++) if (this.protos[i].n < this.protos[wi].n) wi = i;
-      if (this.protos[wi] !== proto) this.protos.splice(wi, 1);
+    // 超上限淘汰:不是纯 LFU(只看使用频率 n)。纯 LFU 会先删"罕见但极关键"的原型
+    //   (n 小但 critEst 高),正是最不该忘的。改用 价值分 = n × (1 - critEst):
+    //   高关键原型(critEst→1)价值分被压低=>更难被删;高频低关键原型优先淘汰。
+    //   严格保证不超上限(删最低分,即使是刚新建的低关键原型也可被删=不无脑保留新原型)。
+    while (this.protos.length > this.maxProto) {
+      const score = (p) => p.n * (1 - p.critEst(this._rfeat(p.protoFeat)));
+      let wi = 0; for (let i = 1; i < this.protos.length; i++) if (score(this.protos[i]) < score(this.protos[wi])) wi = i;
+      this.protos.splice(wi, 1);
     }
     return proto;
   }
@@ -216,24 +225,38 @@ export class SelfModelAgent {
     const surprise = 1 - sim;
     this.z.recentSurprise = 0.8 * this.z.recentSurprise + 0.2 * surprise;
 
-    // ── 点燃判定 = 经济(eco) vs 稳健(rob) 显式竞价（与 decide() 一字不差的机制）──
+    // ── 点燃判定 = 成本敏感的期望代价比较(不再是手调阈值的纯竞价)──
+    //   pCrit = 这步真关键的概率估计。用 critEst 为中心,被不确定度抬高(没把握时宁可高估关键度→
+    //           更愿点燃,因为漏判远比过度深思贵)。这把"罕见但极关键"的步守住。
     const critEst = proto ? proto.critEst(this._rfeat(x)) : 0.5;
-    const uncert = proto ? proto.predErr * (2 - sim) : 1.0;
+    const uncert = proto ? proto.predErr * (2 - sim) : 1.0;   // 0~2:原型越不准/情形越陌生越大
+    const pCrit = clamp01(critEst + 0.5 * uncert * (1 - critEst)); // 不确定时向上偏置(谨慎)
+    //   System1(便宜)的期望代价 = 漏判风险:这步若真关键(概率 pCrit),便宜处理会失败要重做。
+    //     乘 μ:谨慎度高→更看重漏判风险。
+    const eCostS1 = this.mu * pCrit * this.missPenalty;
+    //   System2(深思)的期望代价 = 固定深审成本 + 非关键步白深思 + 污染惩罚。
+    const eCostS2 = this.consultCost * this.overThinkCost +
+                    (1 - pCrit) * this.overThinkCost +
+                    this.polluteWeight * pollution * this.overThinkCost;
+    // 保留竞价量供报告/画图(robGain=稳健出价, ecoCost=经济要价),与期望代价同向。
     const robGain = this.mu * (0.5 + critEst) * uncert;
     const ecoCost = this.consultCost + this.polluteWeight * pollution;
     const regimeShift = this.canShift && proto && this.z.activeProto !== -1 &&
       proto !== this.protos[this.z.activeProto] && sim < 0.7;
-    const ignite = this.protos.length === 0 || robGain > ecoCost || regimeShift;
+    // 点燃当且仅当:库空(无图式) || System1期望代价 > System2期望代价 || 中途变性强制重审。
+    const ignite = this.protos.length === 0 || eCostS1 > eCostS2 || regimeShift;
 
     const theta = this._theta(proto);
     this.z.activeProto = proto ? this.protos.indexOf(proto) : -1;
     const predErr = proto ? proto.predErr : 1.0;
-    // ★透出 EMMS 竞争-协调的【原始竞价量】，供论文画"竞价裁决+μ影子价收敛"图：
-    //   robGain = 稳健机制(System2)出价；ecoCost = 经济机制(System1)要价；
-    //   μ = 协调两者的影子价；ignite = robGain>ecoCost 的裁决结果。
+    // 透出量供报告/画图:
+    //   eCostS1/eCostS2 = 成本敏感的期望代价(驱动点燃的真判据);
+    //   robGain/ecoCost = 等价竞价量, 与期望代价同向, 兼容旧图。
+    //   μ = 协调影子价; pCrit = 关键概率估计(被不确定度上偏)。
     return {
       ignite, critEst, theta, sim, surprise, predErr, mu: this.mu, protoIdx: this.z.activeProto,
       robGain, ecoCost, uncert, regimeShift, pollution,
+      pCrit, eCostS1, eCostS2,
     };
   }
 

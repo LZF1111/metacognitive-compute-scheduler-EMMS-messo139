@@ -169,11 +169,11 @@ The task switches rule at task 30 (regime A → B, the hint→criticality mappin
 
 | arm | total cost | save | mishandled | over-thinking |
 |---|---|---|---|---|
-| always-System2 | 2400 | 0% | 0 | 270 |
-| static-skill | 1813 | 24.5% | 117 | 94 |
-| **conscious (ours)** | **1658** | **30.9%** | **102** | **59** |
+| always-System2 | 2400 | 0% | 0 | 258 |
+| static-skill | 1884 | 21.5% | 128 | 97 |
+| **conscious (ours)** | **1617** | **32.6%** | **93** | **39** |
 
-> Ours is cheaper than both baselines, with fewer mishandles than the static rule **and** far less over-thinking than always-on. (The MCP-tuned variant in `complexTask.mjs` reaches 39.1% savings.)
+> Ours is cheaper than both baselines, with fewer mishandles than the static rule **and** far less over-thinking than always-on. Under a *cost-sensitive* objective (mishandling a critical step is penalised more than over-thinking), the scheduler ignites by comparing expected costs rather than chasing a calibration proxy.
 
 ![arm cost](figures/fig1_arm_cost.png)
 
@@ -192,9 +192,9 @@ Post-shift decision accuracy (deliberation ↔ true criticality alignment):
 | static-skill (frozen threshold) | 52.4 ± 5.1% |
 | router-frozen | 55.6 ± 9.0% |
 | router-online (still learning at test) | 57.3 ± 3.4% |
-| **conscious (ours)** | **62.5 ± 2.6%** |
+| **conscious (ours)** | **61.3 ± 2.4%** |
 
-Paired t-test, ours vs router-online: Δ = 5.2 pt, **p = 7.5e-15**, Cohen's d = 1.43, win-rate 93%.
+Paired t-test, ours vs router-online: Δ = 4.0 pt, **p = 2.8e-14**, Cohen's d = 1.40, win-rate 90%.
 
 > A single global threshold (skill/router) **cannot express a piecewise rule and cannot notice the switch**. The scheduler ignites on surprise and switches prototypes online → significantly higher post-shift accuracy. This is the core selling point for long-horizon / mid-task-shift tasks.
 
