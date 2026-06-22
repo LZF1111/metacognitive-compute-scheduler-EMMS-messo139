@@ -60,7 +60,9 @@ export class SelfModelAgent {
     //   旧版只有一条软竞价,missPenalty 再大也只是偏好,会在某些 regime 拿安全换成本。
     //   新版把约束写进稳健机制的出价:硬约束=∞障碍, 风险预算=绑定约束的影子价。均衡可行域内退化为原竞价。
     this.criticalGate = opts.criticalGate ?? 0.75; // 风险上界 pUpper 超此 → 当作 hard-critical(∞障碍)
-    this.verifyGate = opts.verifyGate ?? 0.35;     // 不点燃(System1)但 pUpper 超此 → 挂一个便宜 verifier
+    // verifyGate = 挂便宜验证器的风险上界阈。原则:验证是廉价保险,期望收益 pUpper·recall·missPenalty
+    //   > verifyCost 即值得 → 阈 ≈ verifyCost/(recall·missPenalty) ≈ 0.8/(0.9·6) ≈ 0.15。故默认 0.15(非任意)。
+    this.verifyGate = opts.verifyGate ?? 0.15;
     this.kUpper = opts.kUpper ?? 0.5;              // pUpper 相对 pMean 的不确定度膨胀(陌生/原型不准→上界更高)
     this.kSample = opts.kSample ?? 0.25;           // 小样本膨胀:原型样本少(nEff 小)→上界更高(保守)
     this.shiftTh = opts.shiftTh ?? 0.6;            // 残差式变性探测阈(综合陌生度/验证失败率/关键度残差)
