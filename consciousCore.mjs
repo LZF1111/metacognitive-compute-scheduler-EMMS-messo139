@@ -107,10 +107,12 @@ export class ConsciousCore {
 
   /**
    * 核心决策:这一步走 System1(直觉/便宜) 还是 System2(点燃/深思)。
-   * mode 由【成本敏感期望代价】直接驱动:eCostS1 > eCostS2(或库空/变性)即点燃 System2。
-   *   eCostS1 = μ·pCrit·missPenalty  (便宜处理的漏判期望代价)
-   *   eCostS2 = consultCost·overThinkCost + (1−pCrit)·overThinkCost + 污染惩罚 (深思的期望代价)
-   * @param obs {criticality_hint, difficulty_hint, progress, context_pollution}
+   * mode 由【竞争-协调均衡】(EMMS)裁决:稳健出价 robBid vs 经济要价 ecoAsk,由影子价 μ 协调。
+   *   robBid = μ·pCrit·missPenalty + 安全约束障碍项  (稳健机制:漏判风险×影子价 + 约束)
+   *   ecoAsk = consultCost·overThinkCost + (1−pCrit)·overThinkCost + 污染惩罚 (经济机制:深思代价)
+   *   robBid > ecoAsk ⟺ 点燃 System2。安全约束作为障碍/影子价进入 robBid(不绕过竞价):
+   *     不可逆/关键步=∞障碍(必然点燃); 风险预算紧=影子价连续抬升。正常步障碍=0 退化为纯成本竞价。
+   * @param obs {criticality_hint, difficulty_hint, progress, context_pollution, risk_class, irreversible}
    */
   decide(sessionId, obs = {}) {
     const s = this._get(sessionId);
@@ -118,11 +120,11 @@ export class ConsciousCore {
     const x = [clamp01(obs.criticality_hint), clamp01(obs.difficulty_hint), clamp01(obs.progress)];
     const pollution = obs.context_pollution != null ? clamp01(obs.context_pollution) : agent.z.pollution;
     // 外部可声明本步的风险类别(normal/critical/irreversible)。irreversible(数据库迁移/部署/
-    // 删除/密钥/回滚等不可逆步) 走硬约束强制 System2+验证,不再被成本函数折中掉。
+    // 删除/密钥/回滚等不可逆步) → 稳健出价加 ∞ 障碍项,使其必然压过经济要价(等价强制点燃),但仍是同一条竞价式。
     const riskClass = obs.irreversible ? "irreversible" : (obs.risk_class || "normal");
     const plan = agent.decideAbstract(x, pollution, { riskClass });
 
-    // mode 由分层调度决定(硬约束→风险预算→安全窗口→成本敏感),不再是单一成本比较。
+    // mode 由竞争-协调竞价裁决(robBid>ecoAsk);安全约束已折进 robBid 的障碍/影子价项。
     const mode = plan.mode;
 
     // 要深思但上下文已脏 → 建议先整理上下文再深思。阈值随 mu 调(越谨慎越早建议整理)。
@@ -135,11 +137,11 @@ export class ConsciousCore {
     return {
       mode,
       ignite: mode === "system2",
-      // ★分层安全调度的核心输出(外部据此知道这步走 S1/S2 还要不要验证):
+      // ★安全约束竞价的核心输出(外部据此知道这步走 S1/S2 还要不要验证):
       risk_class: plan.riskClass,                 // normal | critical | irreversible
       verify: plan.verify,                        // none | lint | test | dry_run | policy_check
       remaining_risk_budget: +plan.remainingRiskBudget.toFixed(4),
-      decision_reason: plan.decisionReason,       // 触发本次裁决的那一层
+      decision_reason: plan.decisionReason,       // 竞价里哪一项主导(障碍/预算影子价/纯成本竞价)
       criticality_estimate: +plan.critEst.toFixed(4),
       threshold: +plan.theta.toFixed(4),
       familiarity: +plan.sim.toFixed(4),
@@ -147,8 +149,8 @@ export class ConsciousCore {
       confidence: +(1 - plan.predErr).toFixed(4),
       mu: +plan.mu.toFixed(4),
       suggest_compact: suggestCompact,
-      // ★决策依据(外部审计据此理解 mode 为何如此):分层裁决,成本敏感只是最后一层。
-      decision_rule: "layered: irreversible/critical hard-gate → risk-budget → safe-window → cost-sensitive",
+      // ★决策依据(外部审计据此理解 mode 为何如此):一条竞争-协调竞价,安全约束折进稳健出价的障碍/影子价。
+      decision_rule: "EMMS bid: ignite ⟺ robBid > ecoAsk (safety constraints enter robBid as barrier/shadow-price)",
       p_crit: plan.pCrit != null ? +plan.pCrit.toFixed(4) : null,
       p_mean: plan.pMean != null ? +plan.pMean.toFixed(4) : null,
       p_upper: plan.pUpper != null ? +plan.pUpper.toFixed(4) : null,  // 保守风险上界(裁决用它,非点估计)
@@ -158,9 +160,14 @@ export class ConsciousCore {
       e_cost_s1: plan.eCostS1 != null ? +plan.eCostS1.toFixed(4) : null,
       e_cost_s2: plan.eCostS2 != null ? +plan.eCostS2.toFixed(4) : null,
       regime_shift: !!plan.regimeShift,
-      // 兼容旧图的等价竞价量(非 mode 判据,仅供可视化):rob_gain/eco_cost 与期望代价同向。
-      rob_gain: plan.robGain != null ? +plan.robGain.toFixed(4) : null,
-      eco_cost: plan.ecoCost != null ? +plan.ecoCost.toFixed(4) : null,
+      // ★竞价量(均衡的核心,mode 判据就是它俩比较):rob_bid=稳健总出价(含安全障碍/影子价), eco_ask=经济要价。
+      rob_bid: plan.robBid != null ? +plan.robBid.toFixed(4) : null,
+      eco_ask: plan.ecoAsk != null ? +plan.ecoAsk.toFixed(4) : null,
+      rob_base: plan.robBase != null ? +plan.robBase.toFixed(4) : null,    // 稳健基础出价(不含约束,=旧 eCostS1)
+      budget_shadow: plan.budgetShadow != null ? +plan.budgetShadow.toFixed(4) : null, // 风险预算影子价
+      // 兼容旧图别名:rob_gain=rob_bid, eco_cost=eco_ask。
+      rob_gain: plan.robBid != null ? +plan.robBid.toFixed(4) : null,
+      eco_cost: plan.ecoAsk != null ? +plan.ecoAsk.toFixed(4) : null,
       _x: x, _pollution: pollution,
     };
   }

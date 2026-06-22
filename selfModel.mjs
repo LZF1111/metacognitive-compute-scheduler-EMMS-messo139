@@ -56,18 +56,20 @@ export class SelfModelAgent {
     //   真实里 missPenalty >> overThinkCost(漏判要重做,过度只是浪费),故点燃判定本就该偏谨慎。
     this.missPenalty = opts.missPenalty ?? 6;      // 漏判关键步的代价(complexTask: 1次便宜白跑+5强模型重做)
     this.overThinkCost = opts.overThinkCost ?? 4;  // 非关键步过度深思的代价(complexTask: 浪费4)
-    // ── 分层安全调度参数(把"关键漏判"从软惩罚升级为硬约束)──
-    //   旧版只有 eCostS1>eCostS2 一条软规则,missPenalty 再大也只是偏好,会在某些 regime 拿安全换成本。
-    //   新版三层:irreversible/critical 硬约束强制 System2(+verify) → 风险上界超预算 → 才走成本敏感。
-    this.criticalGate = opts.criticalGate ?? 0.75; // 风险上界 pUpper 超此 → 当作 hard-critical 强制 System2
+    // ── 安全约束【作为障碍项/影子价进入竞争-协调竞价】(不是绕过竞价的 if-else 覆盖)──
+    //   旧版只有一条软竞价,missPenalty 再大也只是偏好,会在某些 regime 拿安全换成本。
+    //   新版把约束写进稳健机制的出价:硬约束=∞障碍, 风险预算=绑定约束的影子价。均衡可行域内退化为原竞价。
+    this.criticalGate = opts.criticalGate ?? 0.75; // 风险上界 pUpper 超此 → 当作 hard-critical(∞障碍)
     this.verifyGate = opts.verifyGate ?? 0.35;     // 不点燃(System1)但 pUpper 超此 → 挂一个便宜 verifier
     this.kUpper = opts.kUpper ?? 0.5;              // pUpper 相对 pMean 的不确定度膨胀(陌生/原型不准→上界更高)
     this.kSample = opts.kSample ?? 0.25;           // 小样本膨胀:原型样本少(nEff 小)→上界更高(保守)
     this.shiftTh = opts.shiftTh ?? 0.6;            // 残差式变性探测阈(综合陌生度/验证失败率/关键度残差)
-    this.safeWindowLen = opts.safeWindowLen ?? 3;  // 检测到变性后进入的"安全探索窗口"步数(期间多用 System2)
+    this.safeWindowLen = opts.safeWindowLen ?? 3;  // 检测到变性后进入的"安全探索窗口"步数(期间稳健机制溢价)
+    this.hardBarrier = opts.hardBarrier ?? 1e6;    // 硬约束的障碍权重(→∞ 的有限近似):使稳健出价必然压过经济要价
+    this.budgetSoft = opts.budgetSoft ?? 1.0;      // 风险预算的软区宽度:剩余预算<此则影子价连续抬升(线性逼近∞)
     // 风险预算 = 每任务能容忍的"累计未验证漏判风险"总额(单位:Σ pUpper)。
-    //   不是单步阈值:它随便宜步累加 pUpper 而耗尽。耗尽后才强制升级 → 防止"连续在中风险步省成本"。
-    //   足够宽裕(默认2.5)使其只作后备保险,正常步由 L4 成本敏感主导(复现旧版省成本的好处)。
+    //   不是单步门:它随便宜步累加 pUpper 而耗尽。剩余越紧→影子价越高(连续抬升稳健出价),耗尽→∞。
+    //   足够宽裕(默认2.5)使其只作后备保险,正常步由 ROB-vs-ECO 成本敏感竞价主导(复现旧版省成本的好处)。
     this.riskBudget0 = opts.riskBudget0 ?? 2.5;
     this.deepEwma = 0.5;
     this.canGrow = opts.canGrow ?? true;     // 能否自生原型（关掉=只能用已有=类 skill 库）
@@ -236,28 +238,27 @@ export class SelfModelAgent {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * 决策一拍：给定真实情形签名 x（长度 ≥3，[crit线索,难度线索,进度...] 同构）+ 当前真实上下文污染，
-   * 用与 decide() 完全相同的【竞争-协调竞价】裁决是否点燃 System 2，并给出关键度估计。
-   * @param {number[]} x         真实情形签名（前 3 维对齐 _rfeat 的 [crit,难,进度]）
-   * @param {number}   pollution 当前真实上下文污染 ∈[0,1]（token 占窗比）
-   * @returns {{ignite:boolean, critEst:number, theta:number, sim:number, surprise:number, protoIdx:number}}
-   */
-  /**
-   * 决策一拍（分层安全调度）。给定真实情形签名 x + 当前真实上下文污染，返回分层决策。
+   * 决策一拍 = 一次【竞争-协调均衡】(EMMS / solveByCompetitionGame 同构),不是分层 if-else 覆盖。
    *
-   * 决策层次(从硬到软):
-   *   L0 硬约束: riskClass=irreversible(外部标注的不可逆步,如数据库迁移/部署/密钥) → 强制 System2+verify。
-   *   L1 风险上界: pUpper(保守上界,非点估计 pMean) ≥ criticalGate → 当作 hard-critical → System2+verify。
-   *   L2 风险预算: 若本步漏判风险 riskLoss 会吃穿本任务剩余风险预算 → System2。
-   *   L3 安全窗口: 检测到变性后的探索窗口内 → 偏向 System2(多探索,别急着省)。
-   *   L4 成本敏感: 以上都不触发 → 才用 eCostS1>eCostS2 的成本敏感比较选 S1/S2。
-   * 并独立给出 verify 动作: 即便走 System1,只要 pUpper 超 verifyGate 就挂一个便宜验证器
-   *   (把"猜对没有"变成"检查过了")。
+   * 两个机制就"这步要不要点燃 System2"竞价,由影子价 μ 协调:
+   *   稳健机制(ROB) 出价 robBid = μ·pCrit·missPenalty  ← 基础:漏判风险×谨慎影子价
+   *                              + 安全约束的【障碍项】(见下)
+   *   经济机制(ECO) 要价 ecoAsk = 固定深审 + 非关键步白深思 + 上下文污染惩罚
+   *   裁决: robBid > ecoAsk ⟺ 点燃。两机制的不动点 = 折中工作点(同最早 EMMS)。
+   *
+   * 安全约束【进入同一个竞价】而非绕过它——这是约束进入经济均衡的标准做法:
+   *   • 硬约束(不可逆 irreversible / 风险上界 pUpper≥criticalGate) = 障碍权重→∞ 的极限,
+   *     使 robBid 必然压过 ecoAsk → 等价于"强制点燃",但仍是同一条竞价式。
+   *   • 风险预算 = 绑定约束的影子价:剩余预算越紧,其影子价越高(连续抬升 robBid),耗尽→∞。
+   *   • 变性探索期 = 稳健机制临时溢价(均衡里的不确定性溢价)。
+   * 正常步(可行域内部)所有障碍项=0 → 退化为纯 ROB-vs-ECO 成本敏感竞价(复现已验证的省成本行为)。
+   *
+   * 另给出 verify 动作(与点燃决策正交的执行附件): 把"猜对没有"变成"检查过了"。
    *
    * @param {number[]} x         真实情形签名（前 3 维对齐 _rfeat 的 [crit,难,进度]）
    * @param {number}   pollution 当前真实上下文污染 ∈[0,1]（token 占窗比）
    * @param {object}   [ctx]     可选上下文: {riskClass:"normal"|"critical"|"irreversible"}
-   * @returns {{ignite,mode,verify,riskClass,critEst,pCrit,pMean,pUpper,eCostS1,eCostS2,...}}
+   * @returns {{ignite,mode,verify,riskClass,robBid,ecoAsk,pMean,pUpper,...}}
    */
   decideAbstract(x, pollution = this.z.pollution, ctx = {}) {
     this.z.steps++;
@@ -274,7 +275,7 @@ export class SelfModelAgent {
     const nEff = proto ? proto.n : 0;
     const sampleInflate = this.kSample / Math.sqrt(1 + nEff);  // 小样本→大;样本多→趋0
     const pUpper = clamp01(pMean + this.kUpper * uncert * (1 - pMean) + sampleInflate);
-    // pCrit 保留为"被不确定度上偏的关键概率"(兼容旧透出),与 pUpper 同向。
+    // pCrit 保留为"被不确定度上偏的关键概率"(驱动基础竞价),与 pUpper 同向。
     const pCrit = clamp01(pMean + 0.5 * uncert * (1 - pMean));
 
     // ── 残差式变性探测(比"只看相似度"更可靠):综合陌生度 + 验证失败率 + 关键度残差 EWMA ──
@@ -284,32 +285,44 @@ export class SelfModelAgent {
     const regimeShift = protoSwitch || shiftScore > this.shiftTh;
     if (regimeShift && this.z.safeWindow <= 0) this.z.safeWindow = this.safeWindowLen; // 开启安全探索窗口
 
-    // ── 成本敏感期望代价(L4)──
-    const eCostS1 = this.mu * pCrit * this.missPenalty;
-    const eCostS2 = this.consultCost * this.overThinkCost +
-                    (1 - pCrit) * this.overThinkCost +
-                    this.polluteWeight * pollution * this.overThinkCost;
-
-    // ── 分层裁决 ──
+    // ── 风险类标签(供 verify 选型 + 审计):外部声明 irreversible 最高;否则 pUpper 超 criticalGate 视为 critical。
     const declaredClass = ctx.riskClass || "normal";
-    // 风险类: 外部声明 irreversible 最高;否则 pUpper 超 criticalGate 视为 critical。
     const riskClass = declaredClass === "irreversible" ? "irreversible"
       : (declaredClass === "critical" || pUpper >= this.criticalGate) ? "critical" : "normal";
-    const riskLoss = pUpper * 1.0;  // 归一化漏判风险(用上界,保守)
+    const riskLoss = pUpper;  // 归一化漏判风险(用上界,保守)
 
-    let mode, reason;
-    if (riskClass === "irreversible") { mode = "system2"; reason = "irreversible-hard-gate"; }
-    else if (riskClass === "critical") { mode = "system2"; reason = "critical-upperbound-gate"; }
-    else if (this.z.riskBudget <= 0) { mode = "system2"; reason = "risk-budget-exhausted"; }
-    else if (this.z.safeWindow > 0) { mode = "system2"; reason = "safe-exploration-window"; }
-    else if (this.protos.length === 0) { mode = "system2"; reason = "empty-library"; }
-    else { mode = eCostS1 > eCostS2 ? "system2" : "system1"; reason = "cost-sensitive"; }
-    const ignite = mode === "system2";
-    // 走便宜路(System1)且没挂验证器 → 从风险预算里扣这步的未验证风险上界 pUpper。
-    //   预算耗尽 = 累计未验证风险够多了 → 后续强制升级(L2)。验证过的步不扣(风险已被检查掉)。
+    // ── 竞争-协调竞价(EMMS):稳健出价 robBid vs 经济要价 ecoAsk,由影子价 μ 协调 ──
+    //   基础出价/要价 = 旧 eCostS1/eCostS2(保留已验证的成本敏感竞争,正常步只看它俩)。
+    const robBase = this.mu * pCrit * this.missPenalty;            // 稳健基础出价:漏判风险×影子价μ
+    const ecoAsk = this.consultCost * this.overThinkCost +        // 经济要价:深审+白深思+污染惩罚
+                   (1 - pCrit) * this.overThinkCost +
+                   this.polluteWeight * pollution * this.overThinkCost;
+    // 安全约束作为【障碍项】加进稳健出价(硬约束=障碍权重→∞;绑定约束=影子价飙升):
+    const barrierIrrev = declaredClass === "irreversible" ? this.hardBarrier : 0; // 不可逆:∞障碍
+    const barrierCrit = riskClass === "critical" ? this.hardBarrier : 0;          // 关键上界:∞障碍
+    //   风险预算影子价:剩余预算 slack 越紧出价越高(连续),耗尽(≤0)→∞。比"突变门"更像经济均衡。
+    const slack = this.z.riskBudget;
+    const budgetShadow = slack <= 0 ? this.hardBarrier
+      : riskLoss * this.missPenalty * Math.max(0, 1 - slack / this.budgetSoft);
+    const windowPremium = this.z.safeWindow > 0 ? this.hardBarrier : 0;           // 变性探索期:稳健溢价
+    const robBid = robBase + barrierIrrev + barrierCrit + budgetShadow + windowPremium;
+    // 裁决:库空(无图式可竞价)直接点燃;否则稳健出价 > 经济要价 ⟺ 点燃。
+    const ignite = this.protos.length === 0 || robBid > ecoAsk;
+    const mode = ignite ? "system2" : "system1";
+    // 决策依据 = 竞价里哪一项主导(供审计):障碍项主导=安全约束绑定;否则=纯成本敏感竞价。
+    let reason;
+    if (this.protos.length === 0) reason = "empty-library";
+    else if (barrierIrrev > 0) reason = "irreversible-barrier";
+    else if (barrierCrit > 0) reason = "critical-barrier";
+    else if (slack <= 0) reason = "risk-budget-exhausted";
+    else if (windowPremium > 0) reason = "safe-exploration-window";
+    else if (budgetShadow > 0 && robBid > ecoAsk && robBase <= ecoAsk) reason = "risk-budget-pressure";
+    else reason = ignite ? "rob-bid>eco-ask" : "eco-ask>rob-bid";
+    // 走便宜路(System1)且没挂验证器 → 从风险预算里扣这步的未验证风险上界。
+    //   预算耗尽 = 累计未验证风险够多 → 影子价 budgetShadow 飙升压过经济要价。验证过的步不扣。
     this._pendingSpend = riskLoss;  // 实际是否扣由 learnAbstract 据真实路径/验证结果决定
 
-    // ── verify 动作: System2 的高风险步强制验证;System1 但风险上界不低 → 也挂便宜验证器 ──
+    // ── verify 动作(与点燃决策正交): 高风险步强制验证;System1 但风险上界不低 → 挂便宜验证器 ──
     let verify = "none";
     if (riskClass === "irreversible") verify = "dry_run";       // 不可逆步: dry-run/审核
     else if (riskClass === "critical") verify = "test";          // 关键步: 跑测试
@@ -318,14 +331,16 @@ export class SelfModelAgent {
     const theta = this._theta(proto);
     this.z.activeProto = proto ? this.protos.indexOf(proto) : -1;
     const predErr = proto ? proto.predErr : 1.0;
-    const robGain = this.mu * (0.5 + pMean) * uncert;
-    const ecoCost = this.consultCost + this.polluteWeight * pollution;
     return {
       ignite, mode, verify, riskClass, decisionReason: reason,
       critEst: pMean, theta, sim, surprise, predErr, mu: this.mu, protoIdx: this.z.activeProto,
-      robGain, ecoCost, uncert, regimeShift, shiftScore, pollution, safeWindow: this.z.safeWindow,
+      // 竞价量(均衡的核心):robBid=稳健总出价(含障碍), ecoAsk=经济要价, robBase=稳健基础出价。
+      robBid, ecoAsk, robBase, budgetShadow,
+      // 兼容旧图的等价别名:eCostS1=robBase, eCostS2=ecoAsk(正常步竞价就是这两者比较)。
+      eCostS1: robBase, eCostS2: ecoAsk, robGain: robBid, ecoCost: ecoAsk,
+      uncert, regimeShift, shiftScore, pollution, safeWindow: this.z.safeWindow,
       remainingRiskBudget: this.z.riskBudget,
-      pCrit, pMean, pUpper, nEff, eCostS1, eCostS2,
+      pCrit, pMean, pUpper, nEff,
     };
   }
 

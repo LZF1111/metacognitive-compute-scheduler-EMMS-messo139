@@ -1,4 +1,4 @@
-// 分层安全调度的硬约束/验证动作/风险预算回归测试。
+// 安全约束进入竞争-协调竞价(EMMS)的回归测试:不可逆/关键障碍、verify 动作、风险预算影子价。
 import { ConsciousCore } from "./consciousCore.mjs";
 
 let pass = 0, fail = 0;
@@ -14,16 +14,16 @@ for (let i = 0; i < 12; i++) {
     observed_criticality: 0.1, used_system2: false, verifier_passed: true });
 }
 
-// 1) 普通低关键步 → 应走 System1(成本敏感层)。
+// 1) 普通低关键步 → 应走 System1(纯成本竞价,障碍项=0)。
 const norm = c.decide("t", { criticality_hint: 0.1, difficulty_hint: 0.1, progress: 0.5 });
 ok(norm.mode === "system1", `普通低关键步走 System1 (mode=${norm.mode}, reason=${norm.decision_reason})`);
 
-// 2) 外部声明 irreversible → 无论关键度多低,硬约束强制 System2 + dry_run 验证。
+// 2) 外部声明 irreversible → 无论关键度多低,∞障碍项使稳健出价压过经济要价(等价强制 System2) + dry_run 验证。
 const irr = c.decide("t", { criticality_hint: 0.1, difficulty_hint: 0.1, progress: 0.5, irreversible: true });
-ok(irr.mode === "system2", `irreversible 步强制 System2 (mode=${irr.mode})`);
+ok(irr.mode === "system2", `irreversible 步 robBid→∞ 点燃 System2 (mode=${irr.mode})`);
 ok(irr.risk_class === "irreversible", `irreversible 步 risk_class=irreversible (=${irr.risk_class})`);
 ok(irr.verify === "dry_run", `irreversible 步挂 dry_run 验证 (verify=${irr.verify})`);
-ok(irr.decision_reason === "irreversible-hard-gate", `触发硬约束层 (reason=${irr.decision_reason})`);
+ok(irr.decision_reason === "irreversible-barrier", `触发不可逆障碍项 (reason=${irr.decision_reason})`);
 
 // 3) 外部声明 critical → 强制 System2 + test 验证。
 const crit = c.decide("t", { criticality_hint: 0.1, difficulty_hint: 0.1, progress: 0.5, risk_class: "critical" });
@@ -46,9 +46,9 @@ for (let i = 0; i < 30; i++) {
 }
 ok(sawBudgetGate, "累计未验证风险耗尽预算后触发 risk-budget-exhausted 升级");
 
-// 5) decide 透出分层字段齐全。
-ok(["risk_class", "verify", "remaining_risk_budget", "p_upper", "shift_score"].every(k => norm[k] !== undefined),
-  "decide 透出 risk_class/verify/remaining_risk_budget/p_upper/shift_score");
+// 5) decide 透出竞价/安全字段齐全。
+ok(["risk_class", "verify", "remaining_risk_budget", "p_upper", "shift_score", "rob_bid", "eco_ask"].every(k => norm[k] !== undefined),
+  "decide 透出 risk_class/verify/remaining_risk_budget/p_upper/shift_score/rob_bid/eco_ask");
 
-console.log(fail === 0 ? `\n\u2713 分层安全调度全部 ${pass} 条断言通过` : `\n\u2717 ${fail} 条断言失败`);
+console.log(fail === 0 ? `\n\u2713 安全约束进入 EMMS 竞价全部 ${pass} 条断言通过` : `\n\u2717 ${fail} 条断言失败`);
 process.exit(fail === 0 ? 0 : 1);
