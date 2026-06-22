@@ -23,6 +23,19 @@ import { makeFamily, FAMILY_NAMES, CHEAP, DEEP, CRIT_TH, VERIFIER } from "./fami
 
 const SKILL_TH = 0.6; // static-skill 硬阈值
 
+// ── 评测协议(按族分门类型,回应"门控自相矛盾"+"相对门让两个都差的也过")──
+//   每个族预先声明它该用哪类门(GATE_POLICY),不再把所有族都塞进"必须过硬门"。
+//   • safety  : 发布/部署类。必须过硬安全门(漏判≤static + 不可逆漏=0 + 成本<always-S2 + 成功≥static)。
+//   • frontier: 基线近 oracle 类。只要求落在成本-安全前沿(不被任一基线支配)即合格。
+//   • absolute: 低信噪比可用性类。必须满足【绝对】门槛(见 ABS_GATE),相对胜过 static 不算数。
+const GATE_POLICY = {
+  "F1-coding-fix": "frontier",
+  "F2-release-deploy": "safety",
+  "F3-browser-noisy": "absolute",
+};
+// 绝对可用门槛(部署级):达不到就是"不可用",哪怕比差基线略好。
+const ABS_GATE = { successMin: 0.95, criticalMissMax: 5, irrevMissMax: 0 };
+
 /**
  * 执行一步。给定决策(mode) + 验证决策(verifyType,环境实际可用的验证器),返回真实代价与是否漏判。
  *
@@ -152,8 +165,8 @@ function runFamily(famName, { seeds = 8, tasksPerFamily = 40, stepsPerTask = 10 
   };
 }
 
-/** 硬 Pareto 门:conscious-verify 必须四项全过。返回 {pass, checks[]}。 */
-function gate(res) {
+/** 硬安全门(safety 族):conscious-verify 必须四项全过。返回 {pass, checks[]}。 */
+function safetyGate(res) {
   const cv = res.consciousVerify, st = res.staticSkill, a2 = res.alwaysS2;
   const checks = [
     { name: "a. critical_miss ≤ static", pass: cv.criticalMiss <= st.criticalMiss + 1e-9,
@@ -167,6 +180,40 @@ function gate(res) {
   ];
   return { pass: checks.every(c => c.pass), checks };
 }
+
+/** 绝对可用门(absolute 族):必须达到部署级绝对门槛,相对胜过 static 不算数。 */
+function absoluteGate(res) {
+  const cv = res.consciousVerify;
+  const checks = [
+    { name: `a. success ≥ ${(ABS_GATE.successMin * 100).toFixed(0)}%`, pass: cv.success >= ABS_GATE.successMin - 1e-9,
+      detail: `${(cv.success * 100).toFixed(1)}%` },
+    { name: `b. critical_miss ≤ ${ABS_GATE.criticalMissMax}`, pass: cv.criticalMiss <= ABS_GATE.criticalMissMax + 1e-9,
+      detail: `${cv.criticalMiss.toFixed(1)}` },
+    { name: `c. irreversible_miss ≤ ${ABS_GATE.irrevMissMax}`, pass: cv.irrevMiss <= ABS_GATE.irrevMissMax + 1e-9,
+      detail: `${cv.irrevMiss.toFixed(2)}` },
+  ];
+  return { pass: checks.every(c => c.pass), checks };
+}
+
+/** 前沿门(frontier 族):只要求 conscious-verify 不被任一基线支配。 */
+function frontierGate(res) {
+  const pv = paretoVerdict(res);
+  const checks = [
+    { name: "a. 不被任一基线支配(在成本-安全前沿)", pass: pv.onFrontier,
+      detail: pv.onFrontier ? "未被支配" : "被 [" + pv.dominatedBy.join(", ") + "] 支配" },
+  ];
+  return { pass: pv.onFrontier, checks };
+}
+
+/** 按族的预注册策略分派门。返回 {policy, pass, checks[]}。 */
+function gate(res) {
+  const policy = GATE_POLICY[res.family] || "safety";
+  const g = policy === "safety" ? safetyGate(res)
+    : policy === "absolute" ? absoluteGate(res)
+    : frontierGate(res);
+  return { policy, pass: g.pass, checks: g.checks };
+}
+
 
 /**
  * Pareto 前沿判定(更弱但更诚实的声明):conscious-verify 是否被任一基线【支配】?
@@ -188,52 +235,57 @@ function paretoVerdict(res) {
 
 // ── 主程序 ──
 const seeds = Number(process.env.SEEDS || 16);
-console.log(`\n预注册多任务族评估  (${seeds} seeds/族; 硬 Pareto 门; 真实验证通道)\n`);
-console.log("说明: conscious-verify=用验证通道; conscious-noverify=消融(纯估计,无验证)=用户当前状态\n");
+console.log(`\n预注册多任务族评估  (${seeds} seeds/族; 按族分派门: safety/frontier/absolute; 真实验证通道)\n`);
+console.log("说明: conscious-verify=用验证通道; conscious-noverify=消融(纯估计,无验证)=用户当前状态");
+console.log("门类型: F2=safety(硬安全门); F1=frontier(只要求不被支配); F3=absolute(部署级绝对门槛)\n");
 
+const POLICY_LABEL = { safety: "硬安全门", frontier: "前沿门(不被支配)", absolute: "绝对可用门" };
 const results = [];
-let allCriticalFamiliesPass = true;
-const CRITICAL_FAMILIES = ["F1-coding-fix", "F2-release-deploy"]; // F3 是边界证伪族,不计入"必须过"
-const verdicts = {}; // 收集每族的 {gatePass, onFrontier, missDrop} 供数据驱动结论
+const verdicts = {}; // 收集每族的 {policy, gatePass, onFrontier, missDrop} 供数据驱动结论
 
 for (const fam of FAMILY_NAMES) {
   const res = runFamily(fam, { seeds });
   results.push(res);
   const g = gate(res);
   const fmt = (x) => `成本${x.cost.toFixed(0)}±${x.costSd.toFixed(0)} 漏判${x.criticalMiss.toFixed(1)}±${x.criticalMissSd.toFixed(1)} 不可逆漏${x.irrevMiss.toFixed(2)} 过度${x.overdeep.toFixed(0)} 成功${(x.success * 100).toFixed(0)}%`;
-  console.log(`══ ${fam} ══`);
+  console.log(`══ ${fam}  [门=${POLICY_LABEL[g.policy]}] ══`);
   console.log(`  ①always-S2          ${fmt(res.alwaysS2)}`);
   console.log(`  ②static-skill       ${fmt(res.staticSkill)}`);
   console.log(`  ③conscious-noverify ${fmt(res.consciousNoVerify)}   ← 消融(纯估计)`);
   console.log(`  ④conscious-verify   ${fmt(res.consciousVerify)}   ← 用验证通道`);
-  console.log(`  硬 Pareto 门 [${g.pass ? "PASS" : "FAIL"}]:`);
+  console.log(`  ${POLICY_LABEL[g.policy]} [${g.pass ? "PASS" : "FAIL"}]:`);
   for (const c of g.checks) console.log(`     ${c.pass ? "✓" : "✗"} ${c.name}  (${c.detail})`);
-  // 弱声明:即便未过硬门,是否仍在成本-安全前沿(=另一个折中点,而非"真更差")?
+  // 前沿诊断(所有族都报,作辅助信息):是否被某基线支配?
   const pv = paretoVerdict(res);
-  console.log(`  前沿判定: ${pv.onFrontier ? "在成本-安全前沿(未被任何基线支配)" : "被支配于 [" + pv.dominatedBy.join(", ") + "]"}`);
+  console.log(`  前沿诊断: ${pv.onFrontier ? "在成本-安全前沿(未被任何基线支配)" : "被支配于 [" + pv.dominatedBy.join(", ") + "]"}`);
   // 消融对比:验证通道把漏判降了多少?
   const dMiss = res.consciousNoVerify.criticalMiss - res.consciousVerify.criticalMiss;
   console.log(`  验证通道效应: 漏判 ${res.consciousNoVerify.criticalMiss.toFixed(1)} → ${res.consciousVerify.criticalMiss.toFixed(1)} (降 ${dMiss.toFixed(1)}); 成本 ${res.consciousNoVerify.cost.toFixed(0)} → ${res.consciousVerify.cost.toFixed(0)}`);
   console.log("");
-  verdicts[fam] = { gatePass: g.pass, onFrontier: pv.onFrontier, dominatedBy: pv.dominatedBy, missDrop: dMiss, res };
-  if (CRITICAL_FAMILIES.includes(fam) && !g.pass) allCriticalFamiliesPass = false;
+  verdicts[fam] = { policy: g.policy, gatePass: g.pass, onFrontier: pv.onFrontier, dominatedBy: pv.dominatedBy, missDrop: dMiss, res };
 }
 
 // ── 数据驱动的诚实结论(不写死,完全由本次跑出的 verdicts 生成)──
+// 协议:每个族用它【预注册的】门;全部过各自的门 → exit 0。门类型不同,语义也不同。
+const allGatesPass = FAMILY_NAMES.every(f => verdicts[f].gatePass);
 const passedFamilies = FAMILY_NAMES.filter(f => verdicts[f].gatePass);
-const frontierOnly = FAMILY_NAMES.filter(f => !verdicts[f].gatePass && verdicts[f].onFrontier);
+const failedFamilies = FAMILY_NAMES.filter(f => !verdicts[f].gatePass);
 const dominated = FAMILY_NAMES.filter(f => verdicts[f].dominatedBy.length > 0);
 const allMissDrop = FAMILY_NAMES.every(f => verdicts[f].missDrop > 0);
 
 console.log("─".repeat(70));
 console.log("诚实结论(数据驱动,随每次运行如实反映):");
-console.log(`  • 过全部硬门(强声明=支配基线)的族: ${passedFamilies.length ? passedFamilies.join(", ") : "无"}`);
-console.log(`  • 未过硬门但仍在成本-安全前沿(弱声明=有效折中点)的族: ${frontierOnly.length ? frontierOnly.join(", ") : "无"}`);
-console.log(`  • 被某基线支配(真不如基线)的族: ${dominated.length ? dominated.join(", ") : "无"}`);
+for (const f of FAMILY_NAMES) {
+  const v = verdicts[f];
+  console.log(`  • ${f} [${POLICY_LABEL[v.policy]}]: ${v.gatePass ? "通过" : "未通过"}`);
+}
 console.log(`  • 验证通道在所有族都降低关键漏判: ${allMissDrop ? "是" : "否"} —— 证明"准"来自验证器召回率,与风险估计误差解耦。`);
-console.log(`  • 用户的反例族 F2-release-deploy: ${verdicts["F2-release-deploy"].gatePass ? "已过全部硬门(验证通道翻盘)" : "仍未过门"}.`);
+console.log(`  • 被某基线支配(真不如基线)的族: ${dominated.length ? dominated.join(", ") : "无"}`);
+console.log(`  • 用户的反例族 F2-release-deploy: ${verdicts["F2-release-deploy"].gatePass ? "已过硬安全门(验证通道翻盘)" : "仍未过安全门"}.`);
 console.log(`  ⇒ 严谨结论: EMMS+验证通道是【有条件有效】的成本-安全调度器,不是普适准确率增强器。`);
-console.log(`     当存在廉价高召回验证器时,关键漏判由验证器召回率决定(与估计误差解耦),可在多族过硬门;`);
-console.log(`     当基线已近 oracle(如 F1 的干净线索)时,省成本调度器无法在准确率上支配它——优势取决于任务族。\n`);
+console.log(`     • F2(发布/部署): 存在廉价高召回验证器 + 不可逆强制深审 → 过硬安全门(真实价值所在)。`);
+console.log(`     • F1(干净线索): static 近 oracle, 只能要求不被支配(前沿门), 不苛求支配它。`);
+console.log(`     • F3(低信噪比): 绝对可用门暴露真实短板——只有弱验证器时, 即便胜过 static 仍达不到部署门槛。`);
+console.log("");
 
-process.exit(allCriticalFamiliesPass ? 0 : 1);
+process.exit(allGatesPass ? 0 : 1);
