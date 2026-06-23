@@ -23,23 +23,37 @@ Most frameworks do one of two bad things:
 
 This project pulls that *"how much effort"* decision out into a **separate, learnable service**. It is **orthogonal** to *"what to do"*: keep your planner/skills, just ask this service one question per step — *System 1 or System 2?*
 
+> **It is no longer just a scheduler — it is a three-layer framework.** Earlier versions overclaimed that three scalar prototypes would "grow into skills." They don't. The mature design separates concerns into three layers that all bid in **one** EMMS auction (§4.4):
+>
+> | layer | learns | answers |
+> |---|---|---|
+> | **Metacognition** (`selfModel`) | when a step is worth deliberation | *how much compute does this step deserve?* |
+> | **Skill memory** (`skillMemory`) | domain experience grounded in **real verifier results** — *which error, in which repo, fixed how, did the test pass* | *have I solved this before, in this repo, and did it actually work?* |
+> | **Meso-scale cluster** (`clusterAgent`) | strongly-coupled steps as a sub-goal cluster | *should this whole sub-goal latch to deliberation instead of being misled per-step by noisy hints?* |
+>
+> Metacognition allocates compute; skill memory holds content experience; verification anchors truth. None of them replaces the others.
+
 ---
 
 ## 2. How it works
 
 ```
-open_session(namespace)                  ← reuse skills accumulated under this namespace
+open_session(namespace)                  ← reuse metacognitive prototypes + skill memory under this namespace
 for each task:
-    new_task(sessionId)                  ← reset context pollution; keep prototypes & μ
+    new_task(sessionId)                  ← reset context pollution; keep prototypes, μ, and skills
     for each step:
-        d = decide_step(criticality_hint, difficulty_hint, progress, context_pollution)
+        d = decide_step(criticality_hint, difficulty_hint, progress, context_pollution,
+                        action_type, repo, lang, file_type, error_signature, stack_features)
+        # skill layer retrieves verified prior fixes (same repo) → d.reusable_fix, and lowers/raises compute
         if d.mode == "system2":  result = strong model / best-of-N   (expensive, robust)
         else:                    result = cheap model / single shot  (frugal)
-        report_outcome(observed_criticality, used_system2)           ← the core self-learns
-    task_feedback(success)               ← updates μ + persists skills
+        # mutating actions (design_patch/apply_patch/...) are force-verified per action type (§4.4)
+        report_outcome(observed_criticality, used_system2,
+                       verifier_result, outcome, patch_summary)       ← all three layers self-learn
+    task_feedback(success)               ← updates μ + persists prototypes AND skills
 ```
 
-The caller only ever computes four task-agnostic scalars (all in `[0,1]`):
+The caller computes four task-agnostic scalars (all in `[0,1]`) for the metacognition layer, and — to activate the skill + action layers — passes the **operation semantics** of the step (all optional; omit them and it degrades cleanly to the metacognition-only scheduler):
 
 | signal | meaning | typical source |
 |---|---|---|
@@ -47,6 +61,9 @@ The caller only ever computes four task-agnostic scalars (all in `[0,1]`):
 | `difficulty_hint` | how hard this step looks | input size / complexity |
 | `progress` | position in the task | step index / total |
 | `context_pollution` | how dirty the context is | used tokens / window |
+| `action_type` | what kind of step (`design_patch` / `apply_patch` / `write_code` / `read_issue` / `run_test` …) | the agent's own action |
+| `repo` / `lang` / `file_type` | repo boundary + language/file context | the working file |
+| `error_signature` / `stack_features` | the real error text / stack symbols (visible *before* the fix — no leakage) | the failing test / traceback |
 
 ---
 
@@ -114,6 +131,26 @@ The key EMMS insight reused here: **a single global average/threshold is wrong.*
 
 These exact quantities are returned by `decide_step` as `p_crit`, `e_cost_s1`, `e_cost_s2`, `mu`, `regime_shift` — so the **decision basis you audit is the one that actually drove the choice** (`ignite ⟺ e_cost_s1 > e_cost_s2`). The legacy `rob_gain`/`eco_cost` are still returned for the old bidding figure but are **no longer the mode decision rule**. **Figure (e) in the overview** plots each step's expected-cost comparison; the diagonal is the coordination boundary `eCostS1 = eCostS2`.
 
+### 4.4 The three layers all bid in the *same* auction
+
+The maturation from "scheduler" to "framework" is this: the **action layer** and **skill layer** do not bypass the auction with `if/else` overrides — they enter the robust bid `robBid` as **barriers and shadow prices**, exactly the standard way constraints and incentives enter a constrained optimum. One bid, three sources of evidence:
+
+$$\mathrm{robBid} = \underbrace{\mu\,\hat p\,\mathrm{missPenalty}}_{\text{metacognition}} + \underbrace{\text{actionPremium}}_{\text{action layer}} + \underbrace{\text{skillNovelty} + \text{crossRepo} - \text{skillReuse}}_{\text{skill layer}} + \underbrace{\text{barriers (irreversible/critical/budget)}}_{\text{safety}}$$
+
+| term | layer | effect on the bid | grounded in |
+|---|---|---|---|
+| `actionPremium` | action | mutating actions (`design_patch`/`apply_patch`/…) raise the bid **regardless of how low the risk hint is** | action type, orthogonal to the upstream hint |
+| `skillReuseDiscount` | skill | a **same-repo, test-passed** prior fix exists → **lower** the bid (reuse known solution, deliberate less) | only records with `verifier_result = test_passed` |
+| `skillNoveltyPremium` | skill | semantically unseen error/stack → **raise** the bid (explore cautiously) — scaled by stakes | local-embedding similarity to past errors |
+| `crossRepoPremium` | skill | similar prior fix but from a **different repo** → **raise** the bid (repo boundary, don't trust cross-domain blindly) | repo match vs best similarity |
+
+**Two design rules that resolve the original `design_patch` miss:**
+
+1. **A mutating action can never be silently demoted on a low risk hint.** Even when `criticality_hint` is deceptively low and μ has decayed, `actionPremium` keeps `design_patch` from being treated as a trivial step — and it is **force-verified** regardless of `mode`.
+2. **Verification strategy is dispatched by action type**, not one-size-fits-all: `design_patch → review`, `apply_patch / write_code / edit_file / refactor → test`, `delete / migrate_schema → dry_run`, `run_test → none`.
+
+Reuse does **not** mean "skip System 2 on a critical mutating step" (that would trade away safety) — critical mutating steps still hit the `∞` barrier and always deliberate. Reuse makes the deliberation **cheaper** (verify a known fix) instead of **searching from scratch**. Omit `ctx.skill`/`action_type` and all these terms vanish → the bid degrades exactly to the metacognition-only auction (zero regression, asserted in `skillGateTest.mjs`).
+
 ---
 
 ## 5. The principle in formulas: one "ignition" = one auction
@@ -151,18 +188,44 @@ The coordination variable **μ is a shadow price** (the KKT dual variable). It s
 
 ![bidding](figures/fig4_bidding.png)
 
-A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calibration predErr, count}` — essentially **a skill compressed into intuition**.
+A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calibration predErr, count}` — **a compressed metacognitive judgment** ("situations like this tend to be critical"). It is *not* a domain skill — the actual *content* of "what error, fixed how, did it pass" lives in the **skill memory layer** (§6), not in these prototypes.
 
 ---
 
-## 6. Why this can replace hand-written skills
+## 6. The skill-memory layer: learning domain experience (not replacing skills)
 
-| | hand-written skill | this (prototype library) |
-|---|---|---|
-| origin | a human writes it (trigger → fixed steps) | **grows from experience** (unexplained situation → new prototype = writes its own skill) |
-| generalization | only fires on foreseen cases | new cases via **inter/extrapolation** of existing prototypes |
-| arbitration | hard trigger, easy to misfire | multiple prototypes **coordinated** by similarity + confidence |
-| mid-task change | **locks up** once dispatched | **detects via surprise and switches prototype** on the fly |
+An earlier version of this README claimed the prototype library "replaces hand-written skills." That was an overclaim, and it is **retracted**. A metacognitive scheduler learns *how much to think* — it does **not** learn *what a `ScopeMismatch` in pytest looks like or how it was fixed*. That domain content lives in a dedicated **skill-memory layer** (`skillMemory.mjs`), and the two cooperate rather than one replacing the other.
+
+A skill record = **one solving experience that was actually verified**:
+
+```
+{ repo, lang, fileType, actionType,        // repo boundary + operation type (structured)
+  errorSignature,                           // the real error text / exception type
+  stackFeatures: [token…],                  // real stack / symbol features
+  changeFootprint: {files,hunks,loc},       // real edit size
+  patchSummary,                             // the reusable fix (the "skill" content)
+  verifierResult, outcome,                  // ★ the REAL test result — test_passed / test_failed
+  embed }                                   // local embedding (token-hash, no paid model)
+```
+
+**Grounding discipline (this is the point).** Reuse confidence is weighted **only** by records whose `verifier_result = test_passed` (or `outcome = 1`). A failed attempt does **not** make the scheduler more confident — it directly falsifies the "it just trusts the upstream hint more and more" failure mode. When the same error recurs **in the same repo** and a verified fix exists, the skill layer surfaces it (`reusable_fix`) and lowers the bid; a similar fix from a **different** repo raises the bid instead (repo boundary). This is verified end-to-end in `smoke.mjs` (A/B/C checks) and asserted in `skillGateTest.mjs` (17 hard assertions).
+
+| | hand-written skill | metacognition prototype | **skill-memory record** |
+|---|---|---|---|
+| learns | nothing (human writes it) | *when* to deliberate | ***what* was the error → fix → did it pass** |
+| origin | a human writes trigger → steps | grows from experience | grows from **verified** solving episodes |
+| arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + test-passed → reuse; cross-repo → caution |
+| failure mode it fixes | — | over/under-thinking | re-searching a fix you already verified once |
+
+> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — this is *lexical* similarity retrieval over real error/stack/patch text, a zero-dependency starting point. It is **not** a trained semantic code embedding, and we do not claim it "understands" code semantics. Swapping in a real embedding model is a drop-in upgrade.
+
+---
+
+## 6b. The meso-scale cluster layer (sub-goal clusters)
+
+The third layer (`clusterAgent.mjs`) addresses a different failure: when per-step `criticality_hint` is noisy, a genuinely pivotal step can look harmless in isolation and get demoted. The cluster layer groups strongly-coupled steps into a **sub-goal cluster**, aggregates their (noisy) hints, and **latches** the whole cluster to deliberation once it ignites — so one misleading low hint can't sink a critical sub-goal. In `exp_cluster.mjs` this cuts critical mishandles (114.8 → 94.4) and task failures (50.7 → 44.0) under noisy hints, with the gain **monotonically vanishing as hint noise → 0** (a falsifiable signature: the benefit comes specifically from aggregating weak signals).
+
+> **Honest boundary.** The cluster layer does **not** auto-discover sub-goal boundaries yet — the outer agent must call `startCluster()` to mark a cluster. What is implemented is *aggregation + latch on known clusters*, not emergent meso-scale structure discovery.
 
 ---
 
@@ -217,9 +280,10 @@ Paired t-test, ours vs router-online: Δ = 2.5 pt, **p = 4.9e-7**, Cohen's d = 0
 
 What genuinely stands up at review:
 
-1. **A metacognitive compute layer orthogonal to "what to do".** FrugalGPT does static routing, Reflexion is post-hoc, Voyager is still skills, RouteLLM has no shift-detection and no pollution-in-cost. Nobody makes *"how much compute"* an independent, learnable, MCP-exposed service driven by four task-agnostic signals.
-2. **Online regime-shift detection + prototype switching.** `sim < 0.7` forces re-examination; the system adapts mid-task where frozen thresholds lock up (§7.3, +5–10 pt, all p < 0.001).
-3. **Context pollution enters the decision cost.** *"The more you think, the messier it gets → the less you should think more."* Most frameworks ignore this; here it is a first-class term `ecoCost = c + λρ`.
+1. **A metacognitive compute layer orthogonal to "what to do".** FrugalGPT does static routing, Reflexion is post-hoc, Voyager is still skills, RouteLLM has no shift-detection and no pollution-in-cost. Nobody makes *"how much compute"* an independent, learnable, MCP-exposed service driven by task-agnostic signals.
+2. **Three layers in one auction.** Metacognition (when to think), skill memory (verified domain experience), and meso-scale clusters all enter the *same* EMMS bid as barriers/shadow-prices (§4.4) — not stacked `if/else` overrides. Action type and verified prior fixes change the compute decision, anchored to **real verifier results**, not to the upstream hint.
+3. **Online regime-shift detection + prototype switching.** `sim < 0.7` forces re-examination; the system adapts mid-task where frozen thresholds lock up (§7.3, +5–10 pt, all p < 0.001).
+4. **Context pollution enters the decision cost.** *"The more you think, the messier it gets → the less you should think more."* Most frameworks ignore this; here it is a first-class term `ecoCost = c + λρ`.
 
 Honest boundaries:
 
@@ -267,14 +331,14 @@ Requires Node.js ≥ 18. No build, no dependencies.
 | tool | when | key params |
 |---|---|---|
 | `open_session` | at start | `sessionId`, `namespace` |
-| `new_task` | each task start | `sessionId` (resets pollution, keeps prototypes & μ) |
-| `decide_step` | **before every step** | `criticality_hint / difficulty_hint / progress / context_pollution` (all 0–1) |
-| `report_outcome` | after every step | `observed_criticality`, `used_system2` |
-| `task_feedback` | task end | `success` (tunes μ + persists) |
-| `get_stats` / `get_calibration` / `dump_prototypes` | audit | — |
-| `close_session` | end | persists skills |
+| `new_task` | each task start | `sessionId` (resets pollution, keeps prototypes, μ, skills) |
+| `decide_step` | **before every step** | `criticality_hint / difficulty_hint / progress / context_pollution` (0–1) + optional semantics `action_type / repo / lang / file_type / error_signature / stack_features` |
+| `report_outcome` | after every step | `observed_criticality`, `used_system2`; + verification `verifier_passed / miss_happened`; + (mutating steps) `patch_summary / change_footprint / verifier_result / outcome` to write a skill record |
+| `task_feedback` | task end | `success` (tunes μ + persists prototypes **and** skills) |
+| `get_stats` / `get_calibration` / `dump_prototypes` | audit | — (`get_stats` includes `nSkills`; `dump_prototypes` includes the skill records) |
+| `close_session` | end | persists prototypes + skills |
 
-`decide_step` returns: `mode: "system1" | "system2"`, the **real decision basis** `p_crit / e_cost_s1 / e_cost_s2 / decision_rule` (the rule that actually sets `mode`: `ignite ⟺ e_cost_s1 > e_cost_s2`), plus `criticality_estimate / threshold / familiarity / surprise / confidence / mu / regime_shift / suggest_compact`. The legacy `rob_gain / eco_cost` are still returned for the old bidding figure but are **not** the mode rule.
+`decide_step` returns: `mode: "system1" | "system2"`, the **real decision basis** `p_crit / e_cost_s1 / e_cost_s2 / decision_rule` (the rule that actually sets `mode`: `ignite ⟺ robBid > ecoAsk`), the **verification action** `verify: none | lint | test | dry_run | review` + `risk_class`, the **action layer** `is_mutating / action_prior / action_premium / forced_verify`, and the **skill layer** `skill_reuse_discount / skill_novelty_premium / cross_repo_premium / reusable_fix / skill_signal` (novelty, repo_match, verified_support). Plus `criticality_estimate / threshold / familiarity / surprise / confidence / mu / regime_shift / suggest_compact`. The legacy `rob_gain / eco_cost` are still returned for the old bidding figure but are **not** the mode rule.
 
 ### 10.3 Self-checks
 
@@ -298,15 +362,22 @@ python figures/make_figures.py                          # -> *.png (Times New Ro
 ## 11. Repository layout
 
 ```
-server.mjs          zero-dep stdio JSON-RPC 2.0 MCP server (8 tools)
-consciousCore.mjs   session management + persistence + calibration
-selfModel.mjs       the scheduler core (decideAbstract / learnAbstract / feedback)
-smoke.mjs           full MCP handshake + persistence self-check
+server.mjs          zero-dep stdio JSON-RPC 2.0 MCP server (9 tools)
+consciousCore.mjs   session mgmt + persistence + calibration; runs a SkillfulAgent (all 3 layers)
+selfModel.mjs       metacognition layer — the bid core (decideAbstract / learnAbstract / feedback)
+skillMemory.mjs     skill layer — verified domain experience (records, local embedding, retrieval)
+skillfulAgent.mjs   assembles metacognition + skill memory; toJSON / fromJSON / restore
+clusterAgent.mjs    meso-scale layer — sub-goal cluster aggregation + latch
+smoke.mjs           full MCP handshake + 3-layer end-to-end (action/skill/repo-boundary) + persistence
+skillGateTest.mjs   17 hard assertions on the skill layer (grounding, repo boundary, reuse, zero-regression)
+exp_skill.mjs       skill-layer experiment (cost 921.67 -> 544; falsifiable falsify arm)
+exp_action.mjs      action-layer experiment (design_patch miss 4.87 -> 0)
+exp_cluster.mjs     meso-scale cluster experiment (noisy-hint safety gain)
 complexTask.mjs     long-horizon 3-arm comparison (drives the real MCP transport)
 answerTests.mjs     "smarter / general / pollution" question tests
 README.zh.md        Chinese README
 ALGORITHM_zh.md     full Chinese algorithm write-up
-store/              persisted prototype libraries (per namespace)
+store/              persisted prototype libraries + skill memory (per namespace)
 figures/
   gen_fig_data.mjs  collects all figure data -> fig_data.json
   make_figures.py   publication-quality plots (Times New Roman, 300 dpi)

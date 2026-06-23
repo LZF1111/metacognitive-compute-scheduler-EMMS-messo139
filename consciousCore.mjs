@@ -24,20 +24,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { SelfModelAgent } from "./selfModel.mjs";
+import { SkillfulAgent } from "./skillfulAgent.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
-const STORE = path.join(__dir, "store"); // 原型库持久化目录（每个 namespace 一个 json）
+const STORE = path.join(__dir, "store"); // 原型库 + 技能库持久化目录（每个 namespace 一个 json）
 
 function clamp01(x) { return Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0)); }
 
 /**
- * 一个会话 = 一个 SelfModelAgent 实例 + 它绑定的 namespace（决定原型库存哪）。
- * loop 级自我状态（污染/活跃原型）随会话；原型库与 μ 随 namespace 持久化。
+ * 一个会话 = 一个 SkillfulAgent 实例（元认知层 meta + 技能层 skills）+ 它绑定的 namespace。
+ * loop 级自我状态（污染/活跃原型）随会话；元认知原型库 + μ + 技能记忆随 namespace 持久化。
  */
 export class ConsciousCore {
   constructor() {
-    /** @type {Map<string,{agent:SelfModelAgent, namespace:string}>} */
+    /** @type {Map<string,{agent:SkillfulAgent, namespace:string}>} */
     this.sessions = new Map();
     fs.mkdirSync(STORE, { recursive: true });
   }
@@ -47,33 +47,25 @@ export class ConsciousCore {
     return path.join(STORE, `${safe}.json`);
   }
 
-  /** 把磁盘上的原型库灌回一个新 agent（namespace 复用既有"技能"）。 */
+  /** 把磁盘上的快照（元认知原型库 + μ + 技能记忆）灌回一个 SkillfulAgent（namespace 复用全部经验）。 */
   _hydrate(agent, ns) {
     const p = this._storePath(ns);
-    if (!fs.existsSync(p)) return 0;
+    if (!fs.existsSync(p)) return { protos: 0, skills: 0 };
     try {
       const data = JSON.parse(fs.readFileSync(p, "utf8"));
-      if (typeof data.mu === "number") agent.mu = data.mu;
-      agent.protos = (data.protos || []).map((s) => ({
-        protoFeat: s.protoFeat.slice(),
-        policy: { theta: s.theta ?? 0.6, muBias: s.muBias ?? 0 },
-        w: s.w.slice(), n: s.n ?? 1, conf: s.conf ?? 0.3, predErr: s.predErr ?? 0.5,
-        critEst(rf) { let v = 0; for (let i = 0; i < this.w.length; i++) v += this.w[i] * rf[i]; return clamp01(v); },
-      }));
-      return agent.protos.length;
-    } catch { return 0; }
+      // 兼容旧格式（只有 {mu, protos}，无 skills）：restore 会把缺失的 skills 当空库处理。
+      agent.restore({ mu: data.mu, protos: data.protos || [], skills: data.skills || [] });
+      return { protos: agent.meta.protos.length, skills: agent.skills.size() };
+    } catch { return { protos: 0, skills: 0 }; }
   }
 
-  /** 把会话的原型库写回磁盘（= 它积累的"技能"持久化，跨进程可复用）。 */
+  /** 把会话的【元认知原型库 + μ + 技能记忆】整体写回磁盘（跨进程/跨会话真正复用）。 */
   persist(sessionId) {
     const s = this.sessions.get(sessionId);
     if (!s) return 0;
-    const protos = s.agent.protos.map((p) => ({
-      protoFeat: p.protoFeat, w: p.w, n: p.n, conf: p.conf, predErr: p.predErr,
-      theta: p.policy.theta, muBias: p.policy.muBias,
-    }));
-    fs.writeFileSync(this._storePath(s.namespace), JSON.stringify({ mu: s.agent.mu, protos }, null, 2), "utf8");
-    return protos.length;
+    const snap = s.agent.toJSON(); // {mu, protos, skills}
+    fs.writeFileSync(this._storePath(s.namespace), JSON.stringify(snap, null, 2), "utf8");
+    return (snap.protos?.length ?? 0);
   }
 
   /**
@@ -81,15 +73,15 @@ export class ConsciousCore {
    * opts 可覆盖核的超参（missPenalty/overThinkCost/polluteWeight/...），不传用经过实验标定的默认值。
    */
   openSession(sessionId, namespace = "default", opts = {}) {
-    const agent = new SelfModelAgent(opts);
-    const n = this._hydrate(agent, namespace);
+    const agent = new SkillfulAgent(opts, opts.skillOpts || {});
+    const loaded = this._hydrate(agent, namespace);
     agent.newTask();
     // calib = 滚动校准窗口（量化"越学越聪明"）：每次 decide 记一条 pending，reportOutcome 评分。
     //   absErr  = |预测关键度 − 观测关键度|（越小=情形读得越准）
     //   correct = 决策是否"对"（深思命中真关键步 / 便宜命中非关键步）
     const calib = { window: opts.calibWindow ?? 50, log: [], pending: null, nScored: 0 };
     this.sessions.set(sessionId, { agent, namespace, calib, lastDecide: null });
-    return { sessionId, namespace, loadedPrototypes: n, mu: agent.mu };
+    return { sessionId, namespace, loadedPrototypes: loaded.protos, loadedSkills: loaded.skills, mu: agent.meta.mu };
   }
 
   _get(sessionId) {
@@ -98,50 +90,62 @@ export class ConsciousCore {
     return s;
   }
 
-  /** 新任务：重置 loop 级自我状态（上下文清空），原型库与 μ 保留（跨任务记忆）。 */
+  /** 新任务：重置 loop 级自我状态（上下文清空），原型库/技能/μ 保留（跨任务记忆）。 */
   newTask(sessionId) {
     const { agent } = this._get(sessionId);
     agent.newTask();
-    return { ok: true, mu: agent.mu, nPrototypes: agent.protos.length };
+    return { ok: true, mu: agent.meta.mu, nPrototypes: agent.meta.protos.length, nSkills: agent.skills.size() };
   }
 
   /**
-   * 核心决策:这一步走 System1(直觉/便宜) 还是 System2(点燃/深思)。
+   * 核心决策:这一步走 System1(直觉/便宜) 还是 System2(点燃/深思),并给出验证策略。
    * mode 由【竞争-协调均衡】(EMMS)裁决:稳健出价 robBid vs 经济要价 ecoAsk,由影子价 μ 协调。
-   *   robBid = μ·pCrit·missPenalty + 安全约束障碍项  (稳健机制:漏判风险×影子价 + 约束)
-   *   ecoAsk = consultCost·overThinkCost + (1−pCrit)·overThinkCost + 污染惩罚 (经济机制:深思代价)
-   *   robBid > ecoAsk ⟺ 点燃 System2。安全约束作为障碍/影子价进入 robBid(不绕过竞价):
-   *     不可逆/关键步=∞障碍(必然点燃); 风险预算紧=影子价连续抬升。正常步障碍=0 退化为纯成本竞价。
-   * @param obs {criticality_hint, difficulty_hint, progress, context_pollution, risk_class, irreversible}
+   * ★三层全部进入同一条竞价(不是旁路):
+   *   元认知层 = robBase + 安全障碍/预算影子价;
+   *   动作层   = actionPremium(改动类动作语义溢价) + 按动作类型分派的验证策略;
+   *   技能层   = 复用折扣(同仓库+真验证可复用修法→降 robBid) / 新颖溢价 / 跨仓库溢价。
+   * @param obs {criticality_hint, difficulty_hint, progress, context_pollution, risk_class, irreversible,
+   *             action_type, repo, lang, file_type, error_signature, stack_features}
    */
   decide(sessionId, obs = {}) {
     const s = this._get(sessionId);
     const { agent } = s;
-    const x = [clamp01(obs.criticality_hint), clamp01(obs.difficulty_hint), clamp01(obs.progress)];
-    const pollution = obs.context_pollution != null ? clamp01(obs.context_pollution) : agent.z.pollution;
-    // 外部可声明本步的风险类别(normal/critical/irreversible)。irreversible(数据库迁移/部署/
-    // 删除/密钥/回滚等不可逆步) → 稳健出价加 ∞ 障碍项,使其必然压过经济要价(等价强制点燃),但仍是同一条竞价式。
+    const critHint = clamp01(obs.criticality_hint);
+    const dHint = clamp01(obs.difficulty_hint);
+    const progress = clamp01(obs.progress);
+    // 上下文污染是真实量(已用 token/窗口);不传则沿用 loop 级累计值。
+    if (obs.context_pollution != null) agent.meta.z.pollution = clamp01(obs.context_pollution);
+    const pollution = agent.meta.z.pollution;
     const riskClass = obs.irreversible ? "irreversible" : (obs.risk_class || "normal");
-    const plan = agent.decideAbstract(x, pollution, { riskClass });
 
-    // mode 由竞争-协调竞价裁决(robBid>ecoAsk);安全约束已折进 robBid 的障碍/影子价项。
+    // ★三层决策:技能检索(repo/语言/文件类型/操作类型/错误签名/堆栈)→技能信号→并入 EMMS 竞价。
+    //   决策时可见字段(报错先于修复,无泄漏);改动类动作按 actionVerifier 分派验证策略。
+    const step = {
+      critHint, dHint, progress,
+      repo: obs.repo, lang: obs.lang, fileType: obs.file_type,
+      actionType: obs.action_type,
+      errorSignature: obs.error_signature,
+      stackFeatures: obs.stack_features,
+      riskClass, irreversible: obs.irreversible,
+    };
+    const plan = agent.decideStep(step);
     const mode = plan.mode;
 
     // 要深思但上下文已脏 → 建议先整理上下文再深思。阈值随 mu 调(越谨慎越早建议整理)。
-    const compactTh = clamp01(0.6 - 0.1 * (agent.mu - 1));
+    const compactTh = clamp01(0.6 - 0.1 * (agent.meta.mu - 1));
     const suggestCompact = mode === "system2" && pollution > compactTh;
 
-    s.calib.pending = { x, critEst: plan.critEst, mode, theta: plan.theta };
-    s.lastDecide = { x, mode };
+    s.calib.pending = { x: [critHint, dHint, progress], critEst: plan.critEst, mode, theta: plan.theta };
+    s.lastDecide = { mode, actionType: obs.action_type };
 
     return {
       mode,
       ignite: mode === "system2",
       // ★安全约束竞价的核心输出(外部据此知道这步走 S1/S2 还要不要验证):
       risk_class: plan.riskClass,                 // normal | critical | irreversible
-      verify: plan.verify,                        // none | lint | test | dry_run | policy_check
+      verify: plan.verify,                        // none | lint | test | dry_run | review
       remaining_risk_budget: +plan.remainingRiskBudget.toFixed(4),
-      decision_reason: plan.decisionReason,       // 竞价里哪一项主导(障碍/预算影子价/纯成本竞价)
+      decision_reason: plan.decisionReason,       // 竞价里哪一项主导(障碍/预算影子价/动作溢价/技能项/纯成本竞价)
       criticality_estimate: +plan.critEst.toFixed(4),
       threshold: +plan.theta.toFixed(4),
       familiarity: +plan.sim.toFixed(4),
@@ -150,7 +154,7 @@ export class ConsciousCore {
       mu: +plan.mu.toFixed(4),
       suggest_compact: suggestCompact,
       // ★决策依据(外部审计据此理解 mode 为何如此):一条竞争-协调竞价,安全约束折进稳健出价的障碍/影子价。
-      decision_rule: "EMMS bid: ignite ⟺ robBid > ecoAsk (safety constraints enter robBid as barrier/shadow-price)",
+      decision_rule: "EMMS bid: ignite ⟺ robBid > ecoAsk (safety/action/skill constraints enter robBid as barrier/shadow-price)",
       p_crit: plan.pCrit != null ? +plan.pCrit.toFixed(4) : null,
       p_mean: plan.pMean != null ? +plan.pMean.toFixed(4) : null,
       p_upper: plan.pUpper != null ? +plan.pUpper.toFixed(4) : null,  // 保守风险上界(裁决用它,非点估计)
@@ -165,10 +169,27 @@ export class ConsciousCore {
       eco_ask: plan.ecoAsk != null ? +plan.ecoAsk.toFixed(4) : null,
       rob_base: plan.robBase != null ? +plan.robBase.toFixed(4) : null,    // 稳健基础出价(不含约束,=旧 eCostS1)
       budget_shadow: plan.budgetShadow != null ? +plan.budgetShadow.toFixed(4) : null, // 风险预算影子价
+      // ★动作层(改动类动作语义):是否改动类 + 先验关键度 + 动作溢价 + 是否被强制验证。
+      is_mutating: !!plan.isMutating,
+      action_prior: plan.actionPrior != null ? +plan.actionPrior.toFixed(4) : null,
+      action_premium: plan.actionPremium != null ? +plan.actionPremium.toFixed(4) : null,
+      forced_verify: !!plan.forcedVerify,
+      // ★技能层(领域语义):三个进竞价的技能项 + 可复用修法本体 + 检索信号(novelty/同仓库/已验证支持度)。
+      skill_reuse_discount: plan.skillReuseDiscount != null ? +plan.skillReuseDiscount.toFixed(4) : null,
+      skill_novelty_premium: plan.skillNoveltyPremium != null ? +plan.skillNoveltyPremium.toFixed(4) : null,
+      cross_repo_premium: plan.crossRepoPremium != null ? +plan.crossRepoPremium.toFixed(4) : null,
+      reusable_fix: plan.reusableFix ?? null,
+      skill_signal: plan.skillSignal ? {
+        novelty: +(plan.skillSignal.novelty ?? 0).toFixed(4),
+        prior_success: +(plan.skillSignal.priorSuccess ?? 0).toFixed(4),
+        repo_match: +(plan.skillSignal.repoMatch ?? 0).toFixed(4),
+        verified_support: plan.skillSignal.verifiedSupport ?? 0,
+        best_sim: +(plan.skillSignal.bestSim ?? 0).toFixed(4),
+      } : null,
       // 兼容旧图别名:rob_gain=rob_bid, eco_cost=eco_ask。
       rob_gain: plan.robBid != null ? +plan.robBid.toFixed(4) : null,
       eco_cost: plan.ecoAsk != null ? +plan.ecoAsk.toFixed(4) : null,
-      _x: x, _pollution: pollution,
+      _step: step, _pollution: pollution,
     };
   }
 
@@ -192,14 +213,20 @@ export class ConsciousCore {
   }
 
   /**
-   * 事后回报：观测到的真关键度 + 该步是否走了 System2 + (可选)验证器结果。核据此自学。
+   * 事后回报：观测到的真关键度 + 该步是否走了 System2 + (可选)验证器结果 + (可选)真实修法内容。
+   * ★三层学习:元认知层用 verifier_passed/miss 更新原型/残差/预算;技能层在【改动类动作且有真实结果】时
+   *   把 {真实错误→真实修法→真实验证结果} 存成可复用记录(这才是\"学到领域经验\",非数值原型)。
    * @param outcome {criticality_hint,difficulty_hint,progress, observed_criticality, used_system2, was_deep,
-   *                 verifier_passed, miss_happened}
+   *                 verifier_passed, miss_happened,
+   *                 action_type, repo, lang, file_type, error_signature, stack_features,  // 技能记录键(同 decide)
+   *                 patch_summary, change_footprint, verifier_result, outcome}            // 技能记录值(事后真实内容)
    */
   reportOutcome(sessionId, outcome = {}) {
     const s = this._get(sessionId);
     const { agent, calib } = s;
-    const x = [clamp01(outcome.criticality_hint), clamp01(outcome.difficulty_hint), clamp01(outcome.progress)];
+    const critHint = clamp01(outcome.criticality_hint);
+    const dHint = clamp01(outcome.difficulty_hint);
+    const progress = clamp01(outcome.progress);
     const observedCrit = clamp01(outcome.observed_criticality);
     const usedS2 = !!outcome.used_system2;
 
@@ -215,47 +242,68 @@ export class ConsciousCore {
       calib.pending = null;
     }
 
-    // verifier_passed: 该步若挂了便宜验证器,验证是否通过(true/false/null=没验)。
-    // miss_happened:   外部可直接标注"漏判真发生了"(便宜处理了一个其实关键的步)。
-    const fb = {
+    // step = 与 decide 同一情形/语义键(对齐原型签名 + 技能记录键)。
+    const step = {
+      critHint, dHint, progress,
+      repo: outcome.repo, lang: outcome.lang, fileType: outcome.file_type,
+      actionType: outcome.action_type,
+      errorSignature: outcome.error_signature, stackFeatures: outcome.stack_features,
+    };
+    // result = 真实事后结果:验证器是否通过、是否漏判 + (改动类动作)真实修法摘要/改动面/验证标签/成败。
+    const result = {
+      observedCrit, ignited: usedS2,
+      wasDeep: outcome.was_deep != null ? !!outcome.was_deep : usedS2,
       verifierPassed: outcome.verifier_passed != null ? !!outcome.verifier_passed : null,
       missHappened: outcome.miss_happened != null ? !!outcome.miss_happened : undefined,
+      patchSummary: outcome.patch_summary,
+      changeFootprint: outcome.change_footprint,
+      verifierResult: outcome.verifier_result,
+      outcome: outcome.outcome,
     };
-    agent.learnAbstract(x, observedCrit, usedS2, fb);
-    agent.addPollution(usedS2, outcome.was_deep != null ? !!outcome.was_deep : usedS2);
+    // 三层学习(元认知 learnAbstract + 污染累计 + 技能库写真实经验,全在 learnStep 内)。
+    const skillsBefore = agent.skills.size();
+    agent.learnStep(step, result);
+    const skillAdded = agent.skills.size() > skillsBefore;
     return {
-      ok: true, nPrototypes: agent.protos.length, pollution: +agent.z.pollution.toFixed(4),
-      remaining_risk_budget: +agent.z.riskBudget.toFixed(4),
-      shift_score: +(0.4 * agent.z.recentSurprise + 0.35 * agent.z.verifyFailEwma + 0.25 * Math.min(1, agent.z.residualEwma * 2)).toFixed(4),
+      ok: true, nPrototypes: agent.meta.protos.length, nSkills: agent.skills.size(), skill_recorded: skillAdded,
+      pollution: +agent.meta.z.pollution.toFixed(4),
+      remaining_risk_budget: +agent.meta.z.riskBudget.toFixed(4),
+      shift_score: +(0.4 * agent.meta.z.recentSurprise + 0.35 * agent.meta.z.verifyFailEwma + 0.25 * Math.min(1, agent.meta.z.residualEwma * 2)).toFixed(4),
     };
   }
 
-  /** 任务级反馈：整任务成/败 → 调协调变量 μ（稳定性条件）。 */
+  /** 任务级反馈：整任务成/败 → 调协调变量 μ（稳定性条件），并自动持久化技能。 */
   taskFeedback(sessionId, success) {
     const { agent } = this._get(sessionId);
     agent.feedback(!!success);
-    const n = this.persist(sessionId); // 任务结束自动持久化技能
-    return { ok: true, mu: +agent.mu.toFixed(4), nPrototypes: n };
+    const n = this.persist(sessionId); // 任务结束自动持久化(元认知原型 + 技能记忆)
+    return { ok: true, mu: +agent.meta.mu.toFixed(4), nPrototypes: n };
   }
 
   stats(sessionId) {
     const { agent, namespace } = this._get(sessionId);
     const st = agent.stats();
     return {
-      namespace, nPrototypes: st.nProto, mu: +st.mu.toFixed(4), ignitions: st.ignitions,
-      steps: agent.z.steps, pollution: +agent.z.pollution.toFixed(4),
+      namespace, nPrototypes: st.nProto, nSkills: st.nSkills, mu: +st.mu.toFixed(4), ignitions: st.ignitions,
+      steps: agent.meta.z.steps, pollution: +agent.meta.z.pollution.toFixed(4),
     };
   }
 
-  /** 导出原型库（= 自己长出的 skill），可读可存档。 */
+  /** 导出元认知原型库 + 技能库（可读可存档，用于审计/迁移）。 */
   dumpPrototypes(sessionId) {
     const { agent, namespace } = this._get(sessionId);
     return {
-      namespace, mu: +agent.mu.toFixed(4),
-      prototypes: agent.protos.map((p, i) => ({
+      namespace, mu: +agent.meta.mu.toFixed(4),
+      prototypes: agent.meta.protos.map((p, i) => ({
         id: i, n: p.n, confidence: +p.conf.toFixed(3), predErr: +p.predErr.toFixed(3),
         situationCentroid: p.protoFeat.map((v) => +v.toFixed(3)),
         readoutWeights: p.w.map((v) => +v.toFixed(3)),
+      })),
+      // ★技能库(领域经验):每条 = 真实错误→修法→验证结果(脱敏后可审计)。
+      skills: agent.skills.toJSON().map((r, i) => ({
+        id: i, repo: r.repo, lang: r.lang, fileType: r.fileType, actionType: r.actionType,
+        errorSignature: r.errorSignature, patchSummary: r.patchSummary,
+        verifierResult: r.verifierResult, outcome: r.outcome,
       })),
     };
   }

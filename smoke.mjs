@@ -3,6 +3,7 @@
  * 不依赖任何 SDK，自己按行收发 JSON-RPC，模拟"任意智能体如何调度这个框架"。
  */
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -86,11 +87,57 @@ const log = (...a) => console.log(...a);
   log(`dump_prototypes → 原型数=${dump.prototypes.length}, μ=${dump.mu}`);
   dump.prototypes.forEach((p) => log(`   原型#${p.id} 质心=${JSON.stringify(p.situationCentroid)} n=${p.n} conf=${p.confidence}`));
 
-  // 5) 验证持久化：关闭→新会话同 namespace→应能复用原型
-  log("close_session →", JSON.stringify(await tool("close_session", { sessionId: sid })));
+  // ── ★三层框架验证:技能层(领域语义)真正接入 MCP ──
+  log("\n=== 技能层(领域语义)端到端验证 ===");
+  // (A) 首次遇到一个 pytest 的 design_patch 步骤:技能库空 → 应 novelty 高、无可复用修法。
+  const skillStep = {
+    sessionId: sid, criticality_hint: 0.25, difficulty_hint: 0.4, progress: 0.5,
+    action_type: "design_patch", repo: "pytest", lang: "python", file_type: "py",
+    error_signature: "ScopeMismatch fixture session function-scoped",
+    stack_features: ["_pytest.fixtures", "resolve_fixture_function"],
+  };
+  const d1 = await tool("decide_step", skillStep);
+  log(`(A) 首遇 design_patch: mode=${d1.mode} verify=${d1.verify} is_mutating=${d1.is_mutating} forced_verify=${d1.forced_verify}`);
+  log(`     技能信号 novelty=${d1.skill_signal?.novelty} repo_match=${d1.skill_signal?.repo_match} verified_support=${d1.skill_signal?.verified_support} reusable_fix=${d1.reusable_fix}`);
+  const passA = d1.is_mutating === true && d1.verify === "review" && d1.reusable_fix == null && (d1.skill_signal?.novelty ?? 0) > 0.5;
+  log(`     [${passA ? "PASS" : "FAIL"}] 改动步强制验证(design_patch→review) + 首遇无可复用修法 + novelty 高`);
+
+  // 回报真实修法 + 真实测试通过 → 写入技能库(这才是"学到领域经验")。
+  await tool("report_outcome", {
+    ...skillStep, observed_criticality: 0.85, used_system2: true, verifier_passed: true,
+    patch_summary: "把 session-scoped fixture 降为 function scope 并显式 request 依赖",
+    change_footprint: { files: 1, hunks: 2, loc: 9 },
+    verifier_result: "test_passed", outcome: 1,
+  });
+
+  // (B) 再遇同仓库同类错误:应检索到【已验证】可复用修法 → reusable_fix 非空、repo_match>0、novelty 降。
+  const d2 = await tool("decide_step", skillStep);
+  log(`(B) 再遇同类(同仓库): novelty=${d2.skill_signal?.novelty} repo_match=${d2.skill_signal?.repo_match} verified_support=${d2.skill_signal?.verified_support}`);
+  log(`     reusable_fix=${JSON.stringify(d2.reusable_fix)}`);
+  log(`     skill_reuse_discount=${d2.skill_reuse_discount}  (>0 = 经验复用降算力)`);
+  const passB = d2.reusable_fix != null && (d2.skill_signal?.repo_match ?? 0) > 0 && (d2.skill_signal?.verified_support ?? 0) >= 1;
+  log(`     [${passB ? "PASS" : "FAIL"}] 同仓库+真验证 → 检索到可复用修法(经验真的被复用)`);
+
+  // (C) 跨仓库遇同类错误:repo_match 应=0(仓库边界),不盲信跨域经验。
+  const d3 = await tool("decide_step", { ...skillStep, repo: "flask" });
+  log(`(C) 跨仓库(flask)同类错误: repo_match=${d3.skill_signal?.repo_match} cross_repo_premium=${d3.cross_repo_premium}`);
+  const passC = (d3.skill_signal?.repo_match ?? 1) === 0;
+  log(`     [${passC ? "PASS" : "FAIL"}] 跨仓库 repo_match=0(仓库边界生效)`);
+  await tool("report_outcome", { ...skillStep, observed_criticality: 0.3, used_system2: false });
+
+  // 5) 验证持久化：关闭→新会话同 namespace→应能复用【原型 + 技能记忆】
+  log("\nclose_session →", JSON.stringify(await tool("close_session", { sessionId: sid })));
   const reopen = await tool("open_session", { sessionId: "s2", namespace: ns });
-  log("reopen 同 namespace → loadedPrototypes =", reopen.loadedPrototypes, "(应 >0 = 技能持久化成功)");
+  log("reopen 同 namespace → loadedPrototypes =", reopen.loadedPrototypes, "loadedSkills =", reopen.loadedSkills, "(均应 >0 = 三层记忆持久化成功)");
+  const passPersist = reopen.loadedPrototypes > 0 && reopen.loadedSkills > 0;
+  log(`[${passPersist ? "PASS" : "FAIL"}] 元认知原型 + 技能记忆 跨进程持久化复用`);
+
+  const allPass = passA && passB && passC && passPersist;
+  log(`\n${allPass ? "✓ 三层框架已真正接入 MCP" : "✗ 三层接入存在断点"}: A(动作强制验证)=${passA} B(技能复用)=${passB} C(仓库边界)=${passC} 持久化=${passPersist}`);
+
+  // 清理本次 smoke 产生的持久化文件(不污染 store 目录)。
+  try { fs.rmSync(path.join(__dir, "store", `${ns}.json`), { force: true }); } catch {}
 
   srv.stdin.end();
-  setTimeout(() => process.exit(0), 100);
+  setTimeout(() => process.exit(allPass ? 0 : 1), 100);
 })().catch((e) => { console.error("SMOKE FAIL:", e); process.exit(1); });

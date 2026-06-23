@@ -49,11 +49,17 @@ const TOOLS = [
     name: "decide_step",
     description:
       "★核心：判断当前这一步该用 System1(直觉/便宜模型/单候选) 还是 System2(点燃/强模型/多候选/深推理)，" +
-      "并给出是否需要验证(verify)。调用方提供通用可观测量(都是 0~1)：criticality_hint=这步表面多关键(错了毁全局?), " +
-      "difficulty_hint=表面多难, progress=任务进度位置, context_pollution=当前上下文窗口占用比(已用token/窗口)。" +
-      "★若这步不可逆(数据库迁移/部署/回滚/删除/改密钥权限)请传 irreversible=true 或 risk_class=critical → 走硬约束强制 System2+验证。" +
-      "返回 mode + risk_class(normal/critical/irreversible) + verify(none/lint/test/dry_run) + remaining_risk_budget + 分层决策依据" +
-      "(p_upper=保守风险上界,裁决用它而非点估计; decision_reason=触发哪一层)。这是元认知决策,与'做什么步骤'(skill)正交。",
+      "并给出验证策略(verify)。三层框架(元认知×技能×动作)全部在同一条 EMMS 竞价里裁决:" +
+      "criticality_hint=这步表面多关键, difficulty_hint=表面多难, progress=任务进度, context_pollution=上下文占用比(真实量)。" +
+      "★强烈建议传【操作语义】以激活技能层与动作层:action_type(read_issue/retrieve/locate/design_patch/apply_patch/" +
+      "write_code/edit_file/refactor/delete/migrate_schema/run_test...), repo(仓库,定仓库边界), lang, file_type, " +
+      "error_signature(报错文本/异常类型), stack_features(堆栈/符号 token 数组)。技能层据此检索【同仓库+真验证过】的可复用修法→" +
+      "降算力(reusable_fix);陌生/跨仓库→抬算力(谨慎)。改动类动作(design_patch/apply_patch/...)不论风险估计多低都【强制验证】," +
+      "且按动作类型分派验证策略(design_patch→review 评审; apply_patch/write_code/edit_file/refactor→test; " +
+      "delete/migrate_schema→dry_run; run_test→none)。" +
+      "★不可逆步(部署/迁移/回滚/删除/改密钥)传 irreversible=true 或 risk_class=critical → 硬约束强制 System2+验证。" +
+      "返回 mode + risk_class + verify + remaining_risk_budget + 三层竞价分解(rob_bid/eco_ask + action_premium + " +
+      "skill_reuse_discount/skill_novelty_premium/cross_repo_premium + skill_signal + reusable_fix) + p_upper(保守上界,裁决用它)。",
     inputSchema: {
       type: "object",
       properties: {
@@ -64,6 +70,12 @@ const TOOLS = [
         context_pollution: { type: "number", description: "0~1，当前上下文占用比（真实量，强烈建议传）" },
         risk_class: { type: "string", enum: ["normal", "critical", "irreversible"], description: "可选,声明本步风险类别。critical→强制System2+test; irreversible→强制System2+dry_run" },
         irreversible: { type: "boolean", description: "可选,等价于 risk_class=irreversible。不可逆步(部署/迁移/删除/密钥)务必传 true" },
+        action_type: { type: "string", description: "★操作类型。改动类(design_patch/apply_patch/write_code/edit_file/refactor/delete/migrate_schema)激活动作硬约束+强制验证;只读类(read_issue/retrieve/locate/inspect/run_test)先验低可大胆 System1。" },
+        repo: { type: "string", description: "★仓库标识(定仓库边界:同仓库经验可复用,跨仓库经验打折/触发稳健溢价)。" },
+        lang: { type: "string", description: "语言(python/js/...)，参与技能检索相似度。" },
+        file_type: { type: "string", description: "文件类型(py/ts/md/yaml...)，参与技能检索相似度。" },
+        error_signature: { type: "string", description: "★报错签名(异常类型/报错文本首行)。技能层据此检索同类错误的已验证修法。决策时可见(报错先于修复,无泄漏)。" },
+        stack_features: { type: "array", items: { type: "string" }, description: "堆栈/符号特征 token 数组(函数名/文件名/异常类),提升技能检索精度。" },
       },
       required: ["sessionId"],
     },
@@ -71,12 +83,14 @@ const TOOLS = [
   {
     name: "report_outcome",
     description:
-      "这一步做完后回报真实结果，核据此自学（生长/细化原型=自己写skill）。" +
-      "observed_criticality=事后看这步真实有多关键(0~1，如:便宜就成功=低, 必须强模型才成功=高)；" +
-      "used_system2=这步是否实际走了深思；was_deep=是否做了深处理(默认同 used_system2)。" +
+      "这一步做完后回报真实结果，三层据此自学。元认知层:observed_criticality=事后真实关键度(0~1)，" +
+      "used_system2=是否实际深思，was_deep=是否做了深处理(默认同 used_system2)。" +
       "★若 decide 返回了 verify 动作,把验证结果用 verifier_passed(true/false) 带回 → 喂变性探测器+风险预算账本;" +
-      "若便宜处理了一个其实关键的步(漏判),可用 miss_happened=true 显式标注。" +
-      "建议把 decide_step 时用的 criticality_hint/difficulty_hint/progress 原样带回以对齐情形签名。",
+      "便宜处理了其实关键的步(漏判)可用 miss_happened=true 标注。" +
+      "★技能层(关键,这才是\"学到领域经验\"):改动类动作做完后,把【真实修法内容】带回 → 存成可复用技能记录。" +
+      "传 action_type/repo/lang/file_type/error_signature/stack_features(与 decide 同) + patch_summary(真实修法摘要) + " +
+      "change_footprint({files,hunks,loc} 改动面) + verifier_result(\"test_passed\"/\"test_failed\"/...) + outcome(1成功/0失败)。" +
+      "★接地纪律:只有【verifier_result=test_passed 或 outcome=1】的记录才会被未来当作可信先例复用(降算力),失败记录不贡献复用置信。",
     inputSchema: {
       type: "object",
       properties: {
@@ -89,6 +103,16 @@ const TOOLS = [
         was_deep: { type: "boolean" },
         verifier_passed: { type: "boolean", description: "可选,该步验证器是否通过(挂了 verify 时回报)" },
         miss_happened: { type: "boolean", description: "可选,是否发生了关键漏判(便宜处理了其实关键的步)" },
+        action_type: { type: "string", description: "操作类型(与 decide 同,对齐情形签名+作技能记录键)。" },
+        repo: { type: "string", description: "仓库标识(技能记录键:定仓库边界)。" },
+        lang: { type: "string", description: "语言(技能记录键)。" },
+        file_type: { type: "string", description: "文件类型(技能记录键)。" },
+        error_signature: { type: "string", description: "报错签名(技能记录键)。" },
+        stack_features: { type: "array", items: { type: "string" }, description: "堆栈/符号特征(技能记录键)。" },
+        patch_summary: { type: "string", description: "★真实修法摘要(可复用 skill 本体)。改动类动作务必带回才能学到领域经验。" },
+        change_footprint: { type: "object", description: "改动面 {files,hunks,loc}。" },
+        verifier_result: { type: "string", description: "★真实验证结果标签:test_passed/test_failed/lint_passed/dry_run_ok/... 只有 test_passed/outcome=1 才计入可复用置信。" },
+        outcome: { type: "number", description: "1 成功 / 0 失败(由真测试判定)。" },
       },
       required: ["sessionId", "observed_criticality", "used_system2"],
     },
@@ -135,7 +159,7 @@ function callTool(name, args = {}) {
       return core.newTask(args.sessionId);
     case "decide_step": {
       const r = core.decide(args.sessionId, args);
-      delete r._x; delete r._pollution; // 内部透传字段不外泄
+      delete r._step; delete r._pollution; // 内部透传字段不外泄
       return r;
     }
     case "report_outcome":

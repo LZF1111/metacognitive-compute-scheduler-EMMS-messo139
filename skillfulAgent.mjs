@@ -86,6 +86,7 @@ export class SkillfulAgent {
    * @param {object} result {
    *   observedCrit,      真关键度(由真实升档/测试观测)∈[0,1]
    *   ignited,           该步是否走了 System2
+   *   wasDeep,           该步是否做了深处理(默认同 ignited;影响上下文污染累计)
    *   verifierPassed,    真实验证器结果 true/false/null
    *   missHappened,      漏判是否真发生
    *   // 技能记录(事后才有的真实内容)
@@ -102,7 +103,9 @@ export class SkillfulAgent {
       verifierPassed: result.verifierPassed != null ? !!result.verifierPassed : null,
       missHappened: result.missHappened,
     }, { actionType: step.actionType });
-    this.meta.addPollution(!!result.ignited, !!result.ignited);
+    // 上下文污染:consulted=是否走了深思(点燃),deep=是否做了深处理(默认同点燃,可由 wasDeep 覆盖)。
+    const wasDeep = result.wasDeep != null ? !!result.wasDeep : !!result.ignited;
+    this.meta.addPollution(!!result.ignited, wasDeep);
 
     // 2) 技能层写入【真实语义经验】——仅当本步确有可记录的修法/验证结果(改动类步骤)。
     //    这是"学到特别的东西":把真实错误→真实修法→真实验证 存成可复用记录。
@@ -136,5 +139,36 @@ export class SkillfulAgent {
       })),
       skills: this.skills.toJSON(),
     };
+  }
+
+  /**
+   * 从 toJSON() 的快照恢复两层(跨 MCP 重启真正复用元认知原型 + 领域技能)。
+   * 回应\"SkillfulAgent 有 toJSON 但没有恢复方法\":这里把元认知原型库 + μ + 技能记忆全部灌回。
+   * @param {object} data    toJSON() 产物 {mu, protos, skills}
+   * @param {object} [opts]      透传给 SelfModelAgent
+   * @param {object} [skillOpts] 透传给 SkillMemory
+   */
+  static fromJSON(data = {}, opts = {}, skillOpts = {}) {
+    const a = new SkillfulAgent(opts, skillOpts);
+    a.restore(data);
+    return a;
+  }
+
+  /** 把快照灌入当前实例(原地恢复)。 */
+  restore(data = {}) {
+    if (typeof data.mu === "number") this.meta.mu = data.mu;
+    if (Array.isArray(data.protos)) {
+      this.meta.protos = data.protos.map((s) => ({
+        protoFeat: s.protoFeat.slice(),
+        policy: { theta: s.theta ?? 0.6, muBias: s.muBias ?? 0 },
+        w: s.w.slice(), n: s.n ?? 1, conf: s.conf ?? 0.3, predErr: s.predErr ?? 0.5,
+        // critEst 按存储的 w 长度迭代(新旧维度原型混存安全)。
+        critEst(rf) { let v = 0; for (let i = 0; i < this.w.length; i++) v += this.w[i] * rf[i]; return clamp01(v); },
+      }));
+    }
+    // 技能记忆重建(重算 embedding,保证哈希一致),沿用当前实例的检索超参。
+    const skillOpts = { k: this.skills.k, simStrong: this.skills.simStrong, maxRecords: this.skills.maxRecords };
+    this.skills = SkillMemory.fromJSON(data.skills || [], skillOpts);
+    return this;
   }
 }

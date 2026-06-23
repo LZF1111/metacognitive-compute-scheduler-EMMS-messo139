@@ -151,18 +151,23 @@ The coordination variable **μ is a shadow price** (the KKT dual variable). It s
 
 ![bidding](figures/fig4_bidding.png)
 
-A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calibration predErr, count}` — essentially **a skill compressed into intuition**.
+A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calibration predErr, count}` — **a compressed metacognitive judgment** ("situations like this tend to be critical"). It is *not* a domain skill — the actual *content* of "what error, fixed how, did it pass" lives in the **skill memory layer** (§6), not in these prototypes.
 
 ---
 
-## 6. Why this can replace hand-written skills
+## 6. The skill-memory layer: learning domain experience (not replacing skills)
 
-| | hand-written skill | this (prototype library) |
-|---|---|---|
-| origin | a human writes it (trigger → fixed steps) | **grows from experience** (unexplained situation → new prototype = writes its own skill) |
-| generalization | only fires on foreseen cases | new cases via **inter/extrapolation** of existing prototypes |
-| arbitration | hard trigger, easy to misfire | multiple prototypes **coordinated** by similarity + confidence |
-| mid-task change | **locks up** once dispatched | **detects via surprise and switches prototype** on the fly |
+An earlier version of this README claimed the prototype library "replaces hand-written skills." That was an overclaim, and it is **retracted**. A metacognitive scheduler learns *how much to think* — it does **not** learn *what a `ScopeMismatch` in pytest looks like or how it was fixed*. That domain content lives in a dedicated **skill-memory layer** (`skillMemory.mjs`), and the two cooperate rather than one replacing the other.
+
+A skill record = **one solving experience that was actually verified**: `{repo, lang, fileType, actionType, errorSignature, stackFeatures, changeFootprint, patchSummary, verifierResult, outcome, embed}`. **Reuse confidence is weighted only by records whose `verifier_result = test_passed`** — a failed attempt does not make the scheduler more confident. Same error, same repo, verified fix → surface `reusable_fix` and lower the bid; similar fix from a **different** repo → raise the bid (repo boundary). Verified end-to-end in `smoke.mjs` (A/B/C) and `skillGateTest.mjs` (17 assertions).
+
+| | hand-written skill | metacognition prototype | **skill-memory record** |
+|---|---|---|---|
+| learns | nothing (human writes it) | *when* to deliberate | ***what* error → fix → did it pass** |
+| origin | a human writes trigger → steps | grows from experience | grows from **verified** solving episodes |
+| arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + test-passed → reuse; cross-repo → caution |
+
+> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — *lexical* similarity retrieval over real error/stack/patch text, a zero-dependency starting point, **not** a trained semantic code embedding. The meso-scale cluster layer (`clusterAgent.mjs`) aggregates strongly-coupled steps into a sub-goal cluster and latches it to deliberation under noisy hints, but does **not** auto-discover cluster boundaries yet (the outer agent calls `startCluster()`).
 
 ---
 

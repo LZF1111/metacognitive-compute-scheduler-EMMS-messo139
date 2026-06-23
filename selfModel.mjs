@@ -75,7 +75,20 @@ export class SelfModelAgent {
       read_issue: 0.2, retrieve: 0.2, locate: 0.35, triage: 0.25, run_test: 0.4, inspect: 0.3,
     };
     // forceVerifyMutating: 改动类动作是否强制至少 test(默认 true=回应用户"代码修改步骤应至少强制 test")。
-    this.forceVerifyMutating = opts.forceVerifyMutating ?? true;
+    this.forceVerifyMutating = opts.forceVerifyMutating ?? true;    // ── ★按操作类型分派【验证策略】(回应\"design_patch/apply_patch/run_test 应是不同验证策略\")──
+    //   不同动作的\"正确验证\"不同:设计补丁要先评审+干跑,应用补丁/写码要跑测试,删除/迁移不可逆要干跑+策略检查,
+    //   跑测试本身就是验证(不必再套一层)。这张表是【改动类动作 → 验证动作】的语义映射,
+    //   仍受 verify 选型主流程约束(irreversible/critical 的硬验证优先级更高)。
+    this.actionVerifier = opts.actionVerifier ?? {
+      design_patch: "review",       // 设计补丁:先人审/方案评审(改动面大,语义错代价高)
+      apply_patch: "test",          // 应用补丁:跑测试确认没回归
+      write_code: "test",           // 写新代码:跑测试
+      edit_file: "test",            // 编辑文件:跑测试
+      refactor: "test",             // 重构:跑测试(行为不变断言)
+      delete: "dry_run",            // 删除:干跑确认影响面(不可逆)
+      migrate_schema: "dry_run",    // schema 迁移:干跑(不可逆)
+      run_test: "none",             // 跑测试动作本身即验证,不再叠加
+    };
     // actionPremiumWeight: 改动类动作给稳健出价的语义溢价权重(随 actionPrior 抬高 robBid,但非∞,不强制点燃)。
     this.actionPremiumWeight = opts.actionPremiumWeight ?? 0.5;
     // ── ★技能层(领域语义)信号进入同一 EMMS 竞价的权重(完整框架的第三个证据源)──
@@ -400,9 +413,14 @@ export class SelfModelAgent {
     let verify = "none";
     if (riskClass === "irreversible") verify = "dry_run";       // 不可逆步: dry-run/审核
     else if (riskClass === "critical") verify = "test";          // 关键步: 跑测试
-    // ★改进1(强制兜底): 凡改动代码/状态的动作,不论被降成 System1,也【至少强制 test】——
-    //   直接回应"代码修改步骤不能仅靠风险估计降级"。即使 mode=system1,verify 也升到 test。
-    else if (isMutating && this.forceVerifyMutating) verify = "test";
+    // ★改进1(强制兜底)+ 按操作类型分派验证策略: 凡改动代码/状态的动作,不论被降成 System1,
+    //   也【至少强制验证】——直接回应\"代码修改步骤不能仅靠风险估计降级\"。具体验证动作按动作类型分派
+    //   (design_patch→review 评审; apply_patch/write_code/edit_file/refactor→test; delete/migrate_schema→dry_run;
+    //    run_test→none 本身即验证)。未登记的改动动作回退到 test(保守)。
+    else if (isMutating && this.forceVerifyMutating) {
+      const a = ctx.actionType;
+      verify = (a && a in this.actionVerifier) ? this.actionVerifier[a] : "test";
+    }
     else if (mode === "system1" && pUpper >= this.verifyGate) verify = "lint"; // 普通但不放心: 便宜静态检查
 
     const theta = this._theta(proto);
@@ -418,9 +436,9 @@ export class SelfModelAgent {
       uncert, regimeShift, shiftScore, pollution, safeWindow: this.z.safeWindow,
       remainingRiskBudget: this.z.riskBudget,
       pCrit, pMean, pUpper, nEff,
-      // ★动作语义(改进1+2): 改动类动作标志 + 先验关键度 + 语义溢价 + 强制 test 与否(供审计/服务器调度)。
+      // ★动作语义(改进1+2): 改动类动作标志 + 先验关键度 + 语义溢价 + 强制验证与否(供审计/服务器调度)。
       isMutating, actionPrior, actionPremium,
-      forcedVerify: (isMutating && this.forceVerifyMutating && verify === "test" && riskClass === "normal"),
+      forcedVerify: (isMutating && this.forceVerifyMutating && verify !== "none" && riskClass === "normal"),
       // ★技能层(领域语义): 三个进竞价的技能项 + 可复用修法本体(供 agent 直接参考旧解)。
       skillReuseDiscount, skillNoveltyPremium, crossRepoPremium, skillNet,
       reusableFix: skill ? (skill.priorFix ?? null) : null,
