@@ -122,13 +122,16 @@ const TOOLS = [
         patch_summary: { type: "string", description: "★真实修法摘要(可复用 skill 本体)。改动类动作务必带回才能学到领域经验。会被脱敏+截断。" },        change_footprint: { type: "object", description: "改动面 {files,hunks,loc}。" },
         verification: {
           type: "object",
-          description: "★可信度来源:受信任测试执行器写入。{source:'executor', exit_code:0=通过, test_cmd, commit_hash, patch_hash}。仅受信源+exit_code===0 授予复用可信度。",
+          description: "★可信度来源:受信任执行器【密码学背书】。先调 issue_attestation(真实 exit_code) 拿到带 {nonce,ts,attestation:{sig}} 的对象,原样回填到这里。调度器用服务端密钥验签+防重放+新鲜窗口,仅【验签通过】才授予复用可信度。客户端无密钥 → 无法伪造 {source:'executor',exit_code:0}。",
           properties: {
             source: { type: "string", description: "执行器来源标识(须在受信白名单,默认 'executor')。" },
-            exit_code: { type: "number", description: "测试进程退出码(0=通过)。" },
+            exit_code: { type: "number", description: "测试进程退出码(0=通过)。必须与签名时一致,否则验签失败。" },
             test_cmd: { type: "string", description: "实际执行的测试命令。" },
             commit_hash: { type: "string", description: "被测 commit hash。" },
             patch_hash: { type: "string", description: "应用的 patch 内容 hash。" },
+            nonce: { type: "string", description: "★issue_attestation 返回的一次性 nonce(防重放)。" },
+            ts: { type: "number", description: "★issue_attestation 返回的签发时间戳(新鲜窗口校验)。" },
+            attestation: { type: "object", description: "★issue_attestation 返回的签名 {ver, sig}。缺失或不匹配 → 不授信。" },
           },
         },
         verifier_result: { type: "string", description: "描述性标签:test_passed/test_failed/...(不单独授予可信度,看 verification)。" },
@@ -136,6 +139,25 @@ const TOOLS = [
         step_id: { type: "string", description: "★介尺度:与 decide_step 同一 step_id。若本步被真实结果证明关键(miss_happened/verifier_passed=false/observed_criticality 高),回灌标定该子目标簇为真关键。" },
       },
       required: ["sessionId", "observed_criticality", "used_system2"],
+    },
+  },
+  {
+    name: "issue_attestation",
+    description:
+      "★【受信任执行器专用】对真实测试结果签发密码学背书 token。真跑完测试后调用,传真实 exit_code(+可选 test_cmd/commit_hash/patch_hash)," +
+      "返回带 {source,exit_code,nonce,ts,attestation:{sig}} 的对象,把它原样放进 report_outcome 的 verification 字段即被授信。" +
+      "安全: 签名用【服务端密钥】,无密钥的客户端伪造 exit_code:0 也签不出有效 token;nonce 一次性防重放,ts 受新鲜窗口约束。" +
+      "生产部署应把本工具限定为【仅本地隔离执行器可达】,不暴露给不可信客户端。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        exit_code: { type: "number", description: "★真实测试进程退出码(0=通过)。执行器只对真实结果签名。" },
+        test_cmd: { type: "string", description: "可选:实际执行的测试命令。" },
+        commit_hash: { type: "string", description: "可选:被测 commit hash。" },
+        patch_hash: { type: "string", description: "可选:应用的 patch 内容 hash。" },
+        source: { type: "string", description: "可选:执行器来源标识(默认 'executor',须在受信白名单)。" },
+      },
+      required: ["exit_code"],
     },
   },
   {
@@ -190,6 +212,8 @@ function callTool(name, args = {}) {
     }
     case "report_outcome":
       return core.reportOutcome(args.sessionId, args);
+    case "issue_attestation":
+      return core.issueAttestation(args);
     case "task_feedback":
       return core.taskFeedback(args.sessionId, args.success);
     case "get_stats":

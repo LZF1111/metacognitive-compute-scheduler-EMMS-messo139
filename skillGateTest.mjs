@@ -6,6 +6,7 @@
  */
 import { SkillMemory, localEmbed } from "./skillMemory.mjs";
 import { SkillfulAgent } from "./skillfulAgent.mjs";
+import { Attestor, LocalExecutor } from "./attest.mjs";
 
 let pass = 0, fail = 0;
 function assert(cond, msg) {
@@ -184,6 +185,98 @@ console.log("=== 技能层硬断言 ===");
   const d = a.meta.decideAbstract([0.5, 0.5, 0.5]); // 空库 → 点燃
   assert(d.skillNet === 0 || d.skillNet == null ? true : d.skillNet === 0, "不传 skill → skillNet 不影响竞价(=0)");
   assert(d.reusableFix == null, "不传 skill → reusableFix=null");
+}
+
+// ── F. ★★P0 密码学背书(attestation): 修\"source/exit_code 仍由调用方提供\"的可伪造漏洞 ──
+//    审核原话: \"我仍可通过 MCP 伪造 {source:executor, exit_code:0},系统随即返回伪造 reusable_fix\"。
+//    修复: 配 attestor 后,信任【只能】来自有效 HMAC 签名 + 未重放 nonce + 新鲜 ts。无密钥签不出。
+{
+  const q = {
+    repo: "pytest", lang: "python", fileType: "py", actionType: "design_patch",
+    errorSignature: "ScopeMismatch fixture session function-scoped",
+    stackFeatures: ["_pytest.fixtures", "resolve_fixture_function"],
+  };
+  const attestor = new Attestor("server-only-secret-key", { trustedSources: ["executor"] });
+  const executor = new LocalExecutor(attestor);
+
+  // (F1) 无签名,仅自报 {source:executor, exit_code:0} → 安全模式必须拒绝(这正是审核的攻击)
+  {
+    const mSec = new SkillMemory({ attestor });
+    for (let i = 0; i < 3; i++) mSec.add({ ...q, patchSummary: "forged: claims executor exit 0 but no signature",
+      verification: { source: "executor", exitCode: 0 } });
+    const stored = mSec.toJSON()[0];
+    assert(stored.verification.trusted === false, "★P0: 安全模式下,无签名的 {source:executor,exit_code:0} → trusted=false(伪造被拒)");
+    assert(stored.verification.attestReason === "no-attestation", `★P0: 拒绝原因=no-attestation (${stored.verification.attestReason})`);
+    const r = mSec.query(q);
+    assert(r.verifiedSupport === 0, "★P0: 无签名伪造 → verifiedSupport=0");
+    assert(r.priorFix === null, "★P0: 无签名伪造 → 绝不外发 reusable_fix");
+  }
+
+  // (F2) 持密钥执行器对【真实退出码0】签发 → 验签通过 → 授信 + 外发可复用修法
+  {
+    const mSec = new SkillMemory({ attestor });
+    for (let i = 0; i < 3; i++) {
+      const v = executor.runAndAttest({ testCmd: "pytest -q", commitHash: "abc123", exitCode: 0 });
+      mSec.add({ ...q, patchSummary: "real verified fix", verification: v });
+    }
+    const stored = mSec.toJSON()[0];
+    assert(stored.verification.trusted === true, "★P0: 有效签名(真实 exit0)→ trusted=true");
+    assert(stored.verification.insecureTrust === false, "★P0: 有效签名授信不带 insecureTrust 标记");
+    const r = mSec.query(q);
+    assert(r.verifiedSupport >= 1, `★P0: 有效签名 → verifiedSupport ≥ 1 (${r.verifiedSupport})`);
+    assert(r.priorFix != null, "★P0: 有效签名 → 同仓库可外发 reusable_fix");
+  }
+
+  // (F3) 重放攻击: 截获一个【真 token】反复用 → 第一次外的复用必须被 nonce 拒绝
+  {
+    const mSec = new SkillMemory({ attestor });
+    const v = executor.runAndAttest({ testCmd: "pytest -q", exitCode: 0 });
+    mSec.add({ ...q, patchSummary: "first use ok", verification: v });          // 第一次:nonce 新鲜
+    mSec.add({ ...q, patchSummary: "replayed", verification: { ...v } });        // 第二次:同 nonce 重放
+    const recs = mSec.toJSON();
+    assert(recs[0].verification.trusted === true, "★P0: 重放-首次使用 trusted=true");
+    assert(recs[1].verification.trusted === false, "★P0: 重放-二次同 nonce → trusted=false(防重放)");
+    assert(recs[1].verification.attestReason === "replayed-nonce", `★P0: 二次拒绝原因=replayed-nonce (${recs[1].verification.attestReason})`);
+  }
+
+  // (F4) 篡改攻击: 拿到真 token 后把 exit_code 从 1 改成 0(想把失败说成成功)→ 签名不匹配被拒
+  {
+    const mSec = new SkillMemory({ attestor });
+    const vFail = executor.runAndAttest({ testCmd: "pytest -q", exitCode: 1 }); // 真实失败的签名
+    const tampered = { ...vFail, exitCode: 0 };                                  // 篡改退出码,签名未变
+    mSec.add({ ...q, patchSummary: "tampered exit code", verification: tampered });
+    const stored = mSec.toJSON()[0];
+    assert(stored.verification.trusted === false, "★P0: 篡改 exit_code 后签名不匹配 → trusted=false");
+    assert(stored.verification.attestReason === "bad-signature", `★P0: 篡改拒绝原因=bad-signature (${stored.verification.attestReason})`);
+  }
+
+  // (F5) 陈旧 token: ts 超出新鲜窗口 → 拒绝
+  {
+    const shortFresh = new Attestor("k2", { freshnessMs: 1, trustedSources: ["executor"] });
+    const v = shortFresh.issue({ source: "executor", exitCode: 0 });
+    v.ts = Date.now() - 10_000; // 人为做旧(签名是对原 ts 签的,改 ts 也会 bad-signature;这里测窗口逻辑路径)
+    const mSec = new SkillMemory({ attestor: shortFresh });
+    mSec.add({ ...q, patchSummary: "stale", verification: v });
+    const stored = mSec.toJSON()[0];
+    assert(stored.verification.trusted === false, "★P0: 陈旧/改动 ts 的 token → trusted=false");
+  }
+
+  // (F6) requireAttestation 但没给 attestor → 一律不可信(绝不静默授信)
+  {
+    const mReq = new SkillMemory({ requireAttestation: true }); // 无 attestor
+    mReq.add({ ...q, patchSummary: "x", verification: { source: "executor", exitCode: 0 } });
+    const stored = mReq.toJSON()[0];
+    assert(stored.verification.trusted === false, "★P0: requireAttestation 无 attestor → trusted=false");
+  }
+
+  // (F7) 不安全回退(无 attestor 且未 require)→ 仍可按旧 source+exitCode 授信,但必须打 insecureTrust 标记(审计可见)
+  {
+    const mDev = new SkillMemory(); // 默认: 无 attestor、不 require → 不安全回退
+    mDev.add({ ...q, patchSummary: "dev-mode fix", verification: { source: "executor", exitCode: 0 } });
+    const stored = mDev.toJSON()[0];
+    assert(stored.verification.trusted === true, "本地开发回退: source+exitCode 仍授信(兼容旧实验)");
+    assert(stored.verification.insecureTrust === true, "★但必须打 insecureTrust=true 标记(生产必须配 attestor)");
+  }
 }
 
 console.log(`\n${fail === 0 ? "✓ 全部" : "✗ 有失败:"} ${pass} passed, ${fail} failed`);

@@ -102,12 +102,15 @@ const log = (...a) => console.log(...a);
   const passA = d1.is_mutating === true && d1.verify === "review" && d1.reusable_fix == null && (d1.skill_signal?.novelty ?? 0) > 0.5;
   log(`     [${passA ? "PASS" : "FAIL"}] 改动步强制验证(design_patch→review) + 首遇无可复用修法 + novelty 高`);
 
-  // 回报真实修法 + 【受信任执行器】验证通过(exit_code=0) → 写入技能库(这才是"学到领域经验")。
+  // 回报真实修法 + 【受信任执行器密码学背书】验证通过 → 写入技能库(这才是"学到领域经验")。
+  //   ★P0(attestation): 先调 issue_attestation(真实 exit_code=0) 拿到带签名的 verification,
+  //   再原样回填 report_outcome。无签名的 {source:executor,exit_code:0} 现在会被拒(防 MCP 伪造)。
+  const att1 = await tool("issue_attestation", { exit_code: 0, test_cmd: "pytest -q", commit_hash: "deadbeef", patch_hash: "f00d" });
   await tool("report_outcome", {
     ...skillStep, observed_criticality: 0.85, used_system2: true, verifier_passed: true,
     patch_summary: "把 session-scoped fixture 降为 function scope 并显式 request 依赖",
     change_footprint: { files: 1, hunks: 2, loc: 9 },
-    verification: { source: "executor", exit_code: 0, test_cmd: "pytest -q", commit_hash: "deadbeef", patch_hash: "f00d" },
+    verification: att1,
   });
 
   // (B) 再遇同仓库同类错误:应检索到【已验证】可复用修法 → reusable_fix 非空、repo_match>0、novelty 降。
@@ -130,9 +133,10 @@ const log = (...a) => console.log(...a);
   //   应自动沿用上一步 decide 的 action_type/repo,仍写成技能记录(防遗漏字段悄悄退化)。
   await tool("decide_step", skillStep);
   const nBefore = (await tool("get_stats", { sessionId: sid })).nSkills;
+  const att2 = await tool("issue_attestation", { exit_code: 0 });
   await tool("report_outcome", {
     sessionId: sid, observed_criticality: 0.8, used_system2: true,  // ★不传 action_type/repo/error_signature
-    patch_summary: "同类修法第二例", verification: { source: "executor", exit_code: 0 },
+    patch_summary: "同类修法第二例", verification: att2,
   });
   const nAfter = (await tool("get_stats", { sessionId: sid })).nSkills;
   const passD = nAfter > nBefore;

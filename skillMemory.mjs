@@ -111,16 +111,19 @@ function cosine(a, b) {
 
 /**
  * 判定一条记录是否【受信任验证通过】。
- * ★安全铁律(P0 修复): 可信度只能由【服务端验证的来源 + 退出码】派生,绝不接受调用方自带的 trusted 标志。
- *   旧实现 `if (v.trusted === true) return true` 是一个可伪造后门:
- *   任何 MCP 客户端传 {source:"untrusted-client", exit_code:1, trusted:true} 就能把失败的修复
- *   伪造成 prior_success=1 / verified_support=1,并让它作为 reusable_fix 外发,污染后续路由。
- *   修复后: trusted 永远 = (source ∈ 白名单) ∧ (exitCode === 0),与客户端字段无关。
+ * ★安全铁律(P0 二次修复 / attestation): 可信度【只能】由 add() 时 attestor 校验过的
+ *   `rec.verification.trusted` 缓存布尔派生。该布尔在写入时由【密码学签名校验 + 防重放 nonce
+ *   + 新鲜 ts 窗口】决定(见 _normVerification → this.attestor.verify),【绝不】由调用方自带的
+ *   source/exitCode/trusted 明文派生。
+ *
+ *   为什么不能再用 (source ∈ 白名单) ∧ (exitCode === 0):
+ *   审核指出 source 和 exitCode 本身仍由【调用方】提供,远端 MCP 客户端传
+ *   {"source":"executor","exit_code":0} 即可伪造\"受信\"。修复后:只有持有【服务端密钥】的隔离
+ *   执行器能产出有效签名;没有密钥就签不出、也无法重放——伪造在 add() 阶段即被拒绝并落 trusted=false。
  */
-function trustedPass(rec, trustedSources) {
+function trustedPass(rec) {
   const v = rec.verification;
-  if (!v) return false;
-  return trustedSources.includes(v.source) && v.exitCode === 0;
+  return !!(v && v.trusted === true);
 }
 
 export class SkillMemory {
@@ -130,12 +133,17 @@ export class SkillMemory {
    *   simStrong     "强先例"相似度阈(默认 0.6):≥此才计入 support
    *   maxRecords    库上限(默认 5000;满了淘汰最旧的"未受信验证"记录优先)
    *   trustedSources 受信任执行器来源白名单(默认 ["executor"])
+   *   attestor      Attestor 实例(持服务端密钥)。给了 → 信任【必须】通过签名校验(安全模式);
+   *                 没给 → 退回\"source+exitCode\"明文检查(★仅本地无密钥的开发/可复现实验,会打 insecureTrust 标记)。
+   *   requireAttestation 显式要求 attestor(默认: 给了 attestor 即 true)。true 且无 attestor → 一律 trusted=false。
    */
   constructor(opts = {}) {
     this.k = opts.k ?? 7;
     this.simStrong = opts.simStrong ?? 0.6;
     this.maxRecords = opts.maxRecords ?? 5000;
     this.trustedSources = opts.trustedSources ?? ["executor"];
+    this.attestor = opts.attestor ?? null;
+    this.requireAttestation = opts.requireAttestation ?? !!opts.attestor;
     /** @type {Array<object>} */
     this.records = [];
   }
@@ -151,34 +159,71 @@ export class SkillMemory {
     ]);
   }
 
-  /** 把 verification 规整为统一结构,并据【受信任来源 + exitCode===0】派生 trusted。 */
+  /** 把 verification 规整为统一结构,并据【attestor 签名校验】(安全模式)派生 trusted。 */
   _normVerification(v) {
-    if (!v || typeof v !== "object") return { source: null, exitCode: null, testCmd: null, commitHash: null, patchHash: null, trusted: false };
+    const empty = { source: null, exitCode: null, testCmd: null, commitHash: null, patchHash: null, trusted: false, attestReason: "no-verification", insecureTrust: false };
+    if (!v || typeof v !== "object") return empty;
     const source = v.source ?? null;
-    const exitCode = (typeof v.exitCode === "number") ? v.exitCode : null;
-    // ★安全铁律(P0 修复): trusted 只由【服务端校验的来源 + 退出码】派生,【绝不】接受调用方自带的 v.trusted。
-    //   客户端传进来的 trusted 字段被显式丢弃,避免任意客户端把失败修复伪造成"已验证"污染路由。
-    const trusted = this.trustedSources.includes(source) && exitCode === 0;
+    const exitCode = (typeof v.exitCode === "number") ? v.exitCode
+                   : (typeof v.exit_code === "number") ? v.exit_code : null;
+
+    // ── 信任判定 ──
+    let trusted = false, attestReason = "unverified", insecureTrust = false;
+    if (this.attestor) {
+      // ★安全模式: 信任【只能】来自有效签名 + 未重放 nonce + 新鲜 ts。客户端无密钥 → 伪造必失败。
+      const res = this.attestor.verify({ ...v, source, exitCode });
+      trusted = res.trusted; attestReason = res.reason;
+    } else if (this.requireAttestation) {
+      // 显式要求 attestor 但没给 → 一律不可信(安全优先,绝不静默授信)。
+      trusted = false; attestReason = "attestation-required-but-missing";
+    } else {
+      // ★不安全回退(仅本地无密钥开发/可复现实验): 退回 source+exitCode 明文检查,并打标记。
+      //   该路径【会被审核视为可伪造】,生产必须配 attestor。用 insecureTrust 让上层/审计可见。
+      trusted = this.trustedSources.includes(source) && exitCode === 0;
+      attestReason = trusted ? "insecure-source-exitcode" : "untrusted";
+      insecureTrust = trusted;
+    }
     return {
       source,
       exitCode,
-      testCmd: v.testCmd ? truncStr(redact(v.testCmd), 256) : null,
-      commitHash: v.commitHash ? truncStr(String(v.commitHash), 64) : null,
-      patchHash: v.patchHash ? truncStr(String(v.patchHash), 64) : null,
-      trusted,
+      testCmd: v.testCmd ? truncStr(redact(v.testCmd), 256) : (v.test_cmd ? truncStr(redact(v.test_cmd), 256) : null),
+      commitHash: (v.commitHash ?? v.commit_hash) ? truncStr(String(v.commitHash ?? v.commit_hash), 64) : null,
+      patchHash: (v.patchHash ?? v.patch_hash) ? truncStr(String(v.patchHash ?? v.patch_hash), 64) : null,
+      trusted, attestReason, insecureTrust,
     };
   }
 
   /**
    * 追加一条技能记录。可信度由 verification(受信任执行器)决定,不由 agent 自报 outcome 决定。
    * 写入前:脱敏 + 大小截断 + prompt-injection 标记。检索向量只用决策前可见字段。
+   * @param {object} rec
+   * @param {object} addOpts {preserveTrust} preserveTrust=true 时【沿用已校验好的 verification.trusted】
+   *   而不再重新验签——仅供 fromJSON 从【服务端自有持久化】重建时用(nonce 已一次性消费、进程密钥已轮换,
+   *   重新验签必然失败,但这些记录的信任在落盘前已由 attestor 校验过,落盘文件本身是服务端可信存储)。
+   *   外部/网络来的记录【绝不】走 preserveTrust(默认 false → 必须重新经 attestor 验签)。
    */
-  add(rec) {
+  add(rec, addOpts = {}) {
     const errorSignature = truncStr(redact(rec.errorSignature), MAX_ERR_LEN);
     const patchSummary = truncStr(redact(rec.patchSummary), MAX_PATCH_LEN);
     const stackFeatures = (Array.isArray(rec.stackFeatures) ? rec.stackFeatures : [])
       .slice(0, MAX_STACK_TOK).map((t) => truncStr(redact(t), 128));
-    const verification = this._normVerification(rec.verification);
+    let verification;
+    if (addOpts.preserveTrust && rec.verification && typeof rec.verification === "object") {
+      // 信任随【服务端可信存储】持久化,不重验签(见上)。仍做字段规整与截断。
+      const v = rec.verification;
+      verification = {
+        source: v.source ?? null,
+        exitCode: (typeof v.exitCode === "number") ? v.exitCode : (typeof v.exit_code === "number" ? v.exit_code : null),
+        testCmd: v.testCmd ? truncStr(redact(v.testCmd), 256) : null,
+        commitHash: v.commitHash ? truncStr(String(v.commitHash), 64) : null,
+        patchHash: v.patchHash ? truncStr(String(v.patchHash), 64) : null,
+        trusted: v.trusted === true,
+        attestReason: v.attestReason ?? "restored",
+        insecureTrust: v.insecureTrust === true,
+      };
+    } else {
+      verification = this._normVerification(rec.verification);
+    }
     const injectionFlag = looksInjected(rec.errorSignature, rec.patchSummary, ...(stackFeatures || []));
     const r = {
       repo: rec.repo ?? "", branch: rec.branch ?? "", lang: rec.lang ?? "", fileType: rec.fileType ?? "",
@@ -204,7 +249,7 @@ export class SkillMemory {
     let wi = 0, worst = Infinity;
     for (let i = 0; i < this.records.length; i++) {
       const r = this.records[i];
-      const score = (trustedPass(r, this.trustedSources) ? 1e9 : 0) + r.ts; // 受信验证过的几乎不删
+      const score = (trustedPass(r) ? 1e9 : 0) + r.ts; // 受信验证过的几乎不删
       if (score < worst) { worst = score; wi = i; }
     }
     this.records.splice(wi, 1);
@@ -246,7 +291,7 @@ export class SkillMemory {
     let refCase = null, refSim = -1;                       // 跨仓库受信验证(参考用)
     for (const { r, sim } of top) {
       if (sim >= this.simStrong) support++;
-      const verified = trustedPass(r, this.trustedSources);   // ★只认受信任执行器
+      const verified = trustedPass(r);   // ★只认受信任执行器(trusted 在 add() 时由签名校验决定)
       if (r.verification && r.verification.source != null) {
         const w = Math.max(0, sim);
         wSum += w; sSum += w * (verified ? 1 : 0);
@@ -284,10 +329,11 @@ export class SkillMemory {
     }));
   }
 
-  /** 从序列化数组重建(重算 queryEmbed,保证哈希一致)。 */
+  /** 从序列化数组重建(重算 queryEmbed,保证哈希一致)。
+   *  ★信任沿用:从【服务端自有持久化】重建 → preserveTrust(不重验签,见 add 注释)。 */
   static fromJSON(arr, opts = {}) {
     const m = new SkillMemory(opts);
-    for (const rec of arr || []) m.add(rec);
+    for (const rec of arr || []) m.add(rec, { preserveTrust: true });
     return m;
   }
 }

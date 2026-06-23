@@ -18,7 +18,7 @@ This decouples *"how much compute this step deserves (System 1 cheap generation 
 
 ![overview](figures/overview.png)
 
-> **Headline result** (real SWE-bench Pro, 24 seeds × 60 sessions): the meso-scale layer cuts critical-subtask misses vs per-step routing (**Δ = −1.33, p = 0.0017**) while spending only **+0.9% tokens / +1.1% System2 calls** — i.e. it finds the *right* steps to think hard on, not just *more* of them. Full numbers and how to read each panel: [§7](#7-evidence-real-swe-bench-pro-trajectories).
+> **Headline result** (semi-synthetic on real SWE-bench Pro gold-patch structure, 24 seeds × 60 sessions; **not** an agent `Resolve@k`): the meso-scale layer cuts critical-subtask misses vs per-step routing (**Δ = −1.33, p = 0.0017**) while the extra spend stays within a preset bound (**+0.9% tokens / +1.1% System2 calls**, both increments significant but inside the +10% budget) — i.e. it finds the *right* steps to think hard on, not just *more* of them. Full numbers, how to read each panel, and honest scope: [§7](#7-evidence-semi-synthetic-on-real-swe-bench-pro-structure).
 
 ---
 
@@ -216,14 +216,15 @@ A skill record = **one solving experience that was actually verified**:
   stackFeatures: [token…],                  // real stack / symbol features (redacted, ≤ 64)
   changeFootprint: {files,hunks,loc},       // real edit size
   patchSummary,                             // the reusable fix (the "skill" content; redacted, size-capped)
-  verification: {                           // ★ written by a TRUSTED executor — not self-reported
-    source, exitCode, testCmd,              //   e.g. {source:"executor", exitCode:0, testCmd:"pytest -q"}
-    commitHash, patchHash, trusted },       //   provenance: only exitCode===0 + trusted source counts
+  verification: {                           // ★ cryptographically attested by a TRUSTED executor — not self-reported
+    source, exitCode, testCmd,              //   real result fields; e.g. {source:"executor", exitCode:0, testCmd:"pytest -q"}
+    commitHash, patchHash,                  //   provenance
+    nonce, ts, attestation:{sig} },         //   ★ HMAC signature + one-time nonce + fresh ts — a client without the server key cannot forge
   injectionFlag,                            // prompt-injection marker on stored error/patch text
   queryEmbed }                              // local embedding of DECISION-TIME fields only (no patch text)
 ```
 
-**Grounding discipline (this is the point).** Reuse confidence is weighted **only** by records a **trusted executor** marked with exit code 0 — an agent self-reporting `outcome = 1` does **not** count. A failed attempt does **not** make the scheduler more confident — it directly falsifies the "it just trusts the upstream hint more and more" failure mode. The retrieval vector encodes only **decision-time-visible** fields (repo/lang/error/stack); the post-hoc patch summary is excluded so it can't dilute error matching. When the same error recurs **in the same repo** and a trusted-verified fix exists, the skill layer surfaces it (`reusable_fix`) and lowers the bid; a similar episode from a **different** repo returns a `reference_case` **for human review only** (`reusable_fix` is always `null`) and raises the bid (repo boundary). Stored text is redacted (keys/tokens/emails), size-capped, and prompt-injection-flagged. Verified end-to-end in `smoke.mjs` (A/B/C/D checks) and asserted in `skillGateTest.mjs` (33 hard assertions).
+**Grounding discipline (this is the point).** Reuse confidence is weighted **only** by records a **trusted executor** marked with exit code 0 — an agent self-reporting `outcome = 1` does **not** count. A failed attempt does **not** make the scheduler more confident — it directly falsifies the "it just trusts the upstream hint more and more" failure mode. The retrieval vector encodes only **decision-time-visible** fields (repo/lang/error/stack); the post-hoc patch summary is excluded so it can't dilute error matching. When the same error recurs **in the same repo** and a trusted-verified fix exists, the skill layer surfaces it (`reusable_fix`) and lowers the bid; a similar episode from a **different** repo returns a `reference_case` **for human review only** (`reusable_fix` is always `null`) and raises the bid (repo boundary). Stored text is redacted (keys/tokens/emails), size-capped, and prompt-injection-flagged. Verified end-to-end in `smoke.mjs` (A/B/C/D checks) and asserted in `skillGateTest.mjs` (50 hard assertions, including F1–F7 cryptographic-attestation forgery/replay/tamper tests).
 
 | | hand-written skill | metacognition prototype | **skill-memory record** |
 |---|---|---|---|
@@ -232,7 +233,7 @@ A skill record = **one solving experience that was actually verified**:
 | arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + trusted-verified → reuse; **cross-repo → reference case for human review only, never a reusable fix** |
 | failure mode it fixes | — | over/under-thinking | re-searching a fix you already verified once |
 
-> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — this is *lexical* similarity retrieval over real error/stack text (the query vector deliberately excludes post-hoc patch text), a zero-dependency starting point. It is **not** a trained semantic code embedding, and we do not claim it "understands" code semantics. Skill reusability is gated by a **trusted executor** (exit code, test command, commit/patch hash), not by an agent self-report. Swapping in a real embedding model is a drop-in upgrade.
+> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — this is *lexical* similarity retrieval over real error/stack text (the query vector deliberately excludes post-hoc patch text), a zero-dependency starting point. It is **not** a trained semantic code embedding, and we do not claim it "understands" code semantics. Skill reusability is gated by a **cryptographically attested** trusted executor (HMAC-signed exit code + nonce + timestamp, see `attest.mjs`), not by an agent self-report or a forgeable plaintext claim. Swapping in a real embedding model is a drop-in upgrade.
 
 ---
 
@@ -240,15 +241,17 @@ A skill record = **one solving experience that was actually verified**:
 
 The third layer addresses a different failure: when per-step `criticality_hint` is noisy, a genuinely pivotal step can look harmless in isolation and get demoted. `clusterIndex.mjs` **auto-discovers** sub-goal clusters online via union-find over **decision-time-visible signals** (file Jaccard, symbol Jaccard, test-failure propagation, plan parent), grounds cluster criticality from real verified outcomes, and feeds a **coupling premium** into the *same* EMMS auction (`clusterPremium = clusterWeight · coupling · peerStakes · missPenalty`) — so one misleading low hint can't sink a critical sub-goal. It is wired into the live MCP server (`decide_step` accepts files/symbols/failing_tests/plan_node; `dump_clusters` tool exposes the discovered structure).
 
-On **real SWE-bench Pro trajectories** (`beta-mesoscale2/eval_swebpro_clusters.mjs`, base shared with the figures via `swebpReal.mjs`), it satisfies both hard metrics simultaneously: **(M1)** fewer critical-subtask misses than per-step routing (Δ ≈ −1.33, p ≈ 0.0017; at noise 0.42: Δ ≈ −4.21, 96% of seeds), and **(M2)** System2 calls stay under the +10% budget cap (no brute-force upgrade). See §7.
+On **semi-synthetic SWE-bench Pro evidence** (`beta-mesoscale2/eval_swebpro_clusters.mjs`, base shared with the figures via `swebpReal.mjs` — real gold-patch *structure* + modeled hint noise/S2 success/distractors; not an agent trajectory), it satisfies both hard metrics simultaneously: **(M1)** fewer critical-subtask misses than per-step routing (Δ ≈ −1.33, p ≈ 0.0017; at noise 0.42: Δ ≈ −4.21, 96% of seeds), and **(M2)** the extra System2 calls stay **within a preset +10% budget bound** (the increment is significant, not zero — it is a non-inferiority bound, not "no extra burn"). See §7.
 
 > **Honest boundary.** Cluster boundaries are **not fed** to any arm — the cluster arm must auto-discover them from real file/symbol overlap. The evaluation **penalizes over-clustering** (pulling in distractor steps wastes System2 and fails M2), so the result is not circular. Real parts: co-changed files/symbols/repo/tests from gold patches. Modeled parts (labeled, replaceable): per-step hint noise, System2 success rate, distractor steps.
 
 ---
 
-## 7. Evidence (real SWE-bench Pro trajectories)
+## 7. Evidence (semi-synthetic on real SWE-bench Pro structure)
 
-All figures use Times New Roman, 300 dpi. The data comes **entirely from real SWE-bench Pro** (`sweap_eval_full_v2.jsonl`, 731 real PR instances, shipped in `data/`): each instance's **co-changed file set** and **symbols** are parsed from the official gold patch; repo/path/tests are real. Modeled (labeled, replaceable): per-step hint noise, System2 success rate, distractor steps (real files from other same-repo instances). Reproduce end-to-end:
+> **Scope, stated up front.** This is **not** an agent `Resolve@k` and **not** a real agent trajectory. It is a **semi-synthetic** evaluation: the *structure* is real (which files/symbols are co-changed in 731 real SWE-bench Pro gold patches), but the gold patch is **future information** for a live decision, so we use only its structure to define *which sub-goals are truly critical*; per-step hint noise, the System2=0.9 success rate, and distractor steps are **modeled**. It proves the **mechanism** (does auto-clustering rescue weak-hint critical steps under real coupling), not end-to-end resolve rate. See §8 for the full list of what this does *not* yet show.
+
+All figures use Times New Roman, 300 dpi. The structure comes from **real SWE-bench Pro** (`sweap_eval_full_v2.jsonl`, 731 real PR instances, shipped in `data/`): each instance's **co-changed file set** and **symbols** are parsed from the official gold patch; repo/path/tests are real. Modeled (labeled, replaceable): per-step hint noise, System2 success rate, distractor steps (real files from other same-repo instances). Reproduce end-to-end:
 
 ```bash
 node figures/gen_fig_data.mjs        # collect from real data -> figures/fig_data.json
@@ -281,7 +284,7 @@ Cluster boundaries are **not fed** to any arm; the cluster arm auto-discovers th
 | metric | meaning | value | verdict |
 |---|---|---|---|
 | **M1** critical-miss Δ (cluster − step) | does it miss fewer pivotal subtasks? | **−1.33** (101.17 → 99.83), paired *t* = −3.14, **p = 0.0017**, cluster wins 58% of seeds | ✅ significantly fewer |
-| **M2** System2 Δ (cluster − step) | did it cheat by just upgrading more? | **+10.29 calls** (933.63 → 943.92), well under the +10% cap (≤ 1027) | ✅ no brute-force upgrade |
+| **M2** System2 Δ (cluster − step) | did it cheat by just upgrading more? | **+10.29 calls** (933.63 → 943.92) — a *significant* increase (p ≈ 0), but **within the preset +10% non-inferiority bound** (≤ 1027) | ✅ within budget bound (not "no increase") |
 
 **How to read it:** a method can trivially win M1 by upgrading everything to System2 — but that fails M2. Passing **both** means the cluster layer found the *right* steps to deliberate on, not just *more* steps. The negative M1 with p < 0.01 is the headline: fewer critical subtasks slip through, at essentially the baseline's cost.
 
@@ -346,9 +349,12 @@ Honest boundaries:
 - The constants (`missPenalty = 6`, `overThinkCost = 4`, `consultCost = 0.1`, threshold `p* = 0.8`) are **hand-set to a stylised cost model**, not fit to a real token/latency/error budget. Different costs move the Pareto point.
 - **`p_crit` is a risk score, not a calibrated probability.** It is the read-out criticality inflated toward caution under uncertainty (`clip(ĉ + ½·u·(1−ĉ))`); it is *not* claimed to be calibrated in the statistical sense (a 0.8 score does not mean 80% empirical critical rate).
 - **Synthetic environment with oracle labels.** All 20/30-seed results use a synthetic task generator with ground-truth criticality. They show the *mechanism* works under controlled shifts; they are not real-agent-trajectory evidence.
-- **The strongest baseline is still pending.** The fair baseline here is a single cost-sensitive logistic router; a tougher one would add **explicit change-point detection** to the cost-sensitive router. That comparison is future work.
+- **The strongest baselines are still pending.** The fair baseline here is a single cost-sensitive router. Tougher ones we have **not** yet run: a real-model router, a contextual bandit, an **explicit change-point router**, a standard RAG/skill baseline, and a cluster-on/off ablation **under a real agent scaffold**. Those comparisons are future work.
 - **All three layers are integrated.** Metacognition (`selfModel`), skill memory (`skillMemory`), and the meso-scale cluster (`clusterIndex`) all bid in the *same* online MCP auction. The meso-scale layer feeds a coupling premium into `decide_step` and exposes discovered structure via `dump_clusters`; clusters are auto-discovered from decision-time-visible file/symbol overlap, not hand-fed.
-- **Skill reuse is gated by a trusted verifier, not self-report.** A record becomes reusable only when a trusted executor writes exit code 0 (with test command + commit/patch hash); cross-repo matches return a human-review reference case only, never a `reusable_fix`. Stored patch/error text is redacted, size-capped, and prompt-injection-flagged.
+- **Skill reuse trust is gated by cryptographic attestation, not a self-reported claim.** Trust is **not** granted from a plaintext `{source:"executor", exit_code:0}` (which a remote MCP client could forge). A trusted executor that holds a **server-only HMAC secret** signs the verification payload; the scheduler grants trust only on a **valid signature + un-replayed nonce + fresh timestamp** (`attest.mjs`). A client without the secret cannot forge or replay. The local dev fallback (no attestor) still works for reproducible experiments but is **explicitly flagged `insecureTrust`** and must not be used in production. Threat model: this defends against forged/replayed verifications from untrusted clients; it does **not** defend against a compromised scheduler process or leaked key — true distributed/TEE executor attestation is named future work. Asserted in `skillGateTest.mjs` (F1–F7: forge-without-key, valid-token, replay, tamper, stale, require-attestation, insecure-fallback).
+- **The "evidence" is semi-synthetic, not an agent trajectory.** §7's `eval_swebpro_clusters` uses **real SWE-bench Pro gold-patch structure** (which files/symbols are co-changed) to define which sub-goals are truly critical, then layers **modeled** per-step hint noise + a System2=0.9 success rate + distractor steps. The gold patch is **future information** for a real online decision; we only use its *structure*. So this proves the **mechanism** (does auto-clustering rescue weak-hint critical steps under real coupling), **not** a project `Resolve@k`. End-to-end `Resolve@k` needs a real agent scaffold emitting per-step file/symbol/test signals + an official Docker judge — named future work.
+- **M2 is a non-inferiority bound, not "no extra burn".** The meso-scale arm **does** spend significantly more System2 (Δ ≈ +10.3 calls, p ≈ 0) and tokens (p ≈ 0); the claim is only that this increment stays inside a **preset +10% budget bound**, not that it doesn't increase. Stated honestly throughout.
+- **μ / KKT / EMMS are an engineering interpretation, not a theorem.** The bidding/shadow-price formulation is a principled heuristic; there is **no** constrained-online-learning guarantee, no regret/violation bound, and no verifiable optimality proof yet. Deriving those is open work.
 - On a strong base model (e.g. Opus), the upstream ignition is rarely needed — the upgrade ladder already covers it. The advantage is clearest in **long-horizon / mid-task-shift / weak-model-or-expensive-token** regimes.
 
 ---

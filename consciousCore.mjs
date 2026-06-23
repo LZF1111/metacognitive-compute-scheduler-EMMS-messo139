@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SkillfulAgent } from "./skillfulAgent.mjs";
+import { Attestor, LocalExecutor } from "./attest.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const STORE = path.join(__dir, "store"); // 原型库 + 技能库持久化目录（每个 namespace 一个 json）
@@ -36,11 +37,21 @@ function clamp01(x) { return Math.max(0, Math.min(1, Number.isFinite(x) ? x : 0)
  * loop 级自我状态（污染/活跃原型）随会话；元认知原型库 + μ + 技能记忆随 namespace 持久化。
  */
 export class ConsciousCore {
-  constructor() {
+  constructor(opts = {}) {
     /** @type {Map<string,{agent:SkillfulAgent, namespace:string}>} */
     this.sessions = new Map();
     fs.mkdirSync(STORE, { recursive: true });
+    // ── ★受信任执行器【密码学背书】(P0 attestation) ──
+    //   密钥来自 env EMMS_ATTEST_SECRET(生产经 KMS 注入);缺省进程内随机(只对本进程签发的 token 有效)。
+    //   MCP 客户端【拿不到】密钥 → 无法伪造 {source:executor,exit_code:0}。详见 attest.mjs。
+    //   opts.insecureTrustFallback=true 才允许在【完全没有 attestor】时退回明文 source+exitCode(仅本地实验)。
+    const secret = opts.attestSecret ?? process.env.EMMS_ATTEST_SECRET ?? null;
+    this.attestor = (opts.attestor instanceof Attestor) ? opts.attestor
+      : new Attestor(secret, { trustedSources: opts.trustedSources });
+    this.executor = new LocalExecutor(this.attestor); // 进程内引用执行器(对真实退出码签名)
+    this.insecureTrustFallback = !!opts.insecureTrustFallback; // 默认 false = 必须验签
   }
+
 
   _storePath(ns) {
     const safe = String(ns).replace(/[^a-zA-Z0-9_.-]/g, "_");
@@ -73,7 +84,13 @@ export class ConsciousCore {
    * opts 可覆盖核的超参（missPenalty/overThinkCost/polluteWeight/...），不传用经过实验标定的默认值。
    */
   openSession(sessionId, namespace = "default", opts = {}) {
-    const agent = new SkillfulAgent(opts, opts.skillOpts || {});
+    // ★把服务端 attestor 注入技能层:信任只能来自有效签名(除非显式开 insecureTrustFallback)。
+    const skillOpts = {
+      ...(opts.skillOpts || {}),
+      attestor: this.attestor,
+      requireAttestation: !this.insecureTrustFallback,
+    };
+    const agent = new SkillfulAgent(opts, skillOpts);
     const loaded = this._hydrate(agent, namespace);
     agent.newTask();
     // calib = 滚动校准窗口（量化"越学越聪明"）：每次 decide 记一条 pending，reportOutcome 评分。
@@ -273,13 +290,15 @@ export class ConsciousCore {
       errorSignature: outcome.error_signature, stackFeatures: outcome.stack_features,
       stepId: outcome.step_id,   // ★介尺度:回灌真关键标定到对应子目标簇(与 decide_step 同 step_id)
     };
-    // result = 真实事后结果。★技能可信度来自【受信任执行器】写入的 verification
-    //   {source,exit_code,test_cmd,commit_hash,patch_hash},不由 agent 自报 outcome=1 决定。
-    //   ★安全(P0):【绝不】透传客户端自带的 trusted 字段——可信度只能由 skillMemory 据 source+exitCode 服务端派生。
+    // result = 真实事后结果。★技能可信度来自【受信任执行器密码学背书】的 verification
+    //   {source,exit_code,test_cmd,commit_hash,patch_hash, nonce, ts, attestation:{sig}}。
+    //   ★安全(P0/attestation):【绝不】透传客户端自带的 trusted——信任只由 attestor 验签(skillMemory 内)派生。
+    //   nonce/ts/attestation 必须原样透传给 skillMemory,否则无法验签 → trusted=false。
     const v = outcome.verification;
     const verification = v ? {
       source: v.source, exitCode: (typeof v.exit_code === "number" ? v.exit_code : v.exitCode),
       testCmd: v.test_cmd ?? v.testCmd, commitHash: v.commit_hash ?? v.commitHash, patchHash: v.patch_hash ?? v.patchHash,
+      nonce: v.nonce, ts: v.ts, attestation: v.attestation,
     } : undefined;
     const result = {
       observedCrit, ignited: usedS2,
@@ -309,6 +328,27 @@ export class ConsciousCore {
       remaining_risk_budget: +agent.meta.z.riskBudget.toFixed(4),
       shift_score: +(0.4 * agent.meta.z.recentSurprise + 0.35 * agent.meta.z.verifyFailEwma + 0.25 * Math.min(1, agent.meta.z.residualEwma * 2)).toFixed(4),
     };
+  }
+
+  /**
+   * ★受信任执行器背书签发(P0 attestation 的服务端入口)。
+   *   只有【与调度器同进程/共享密钥】的隔离执行器能调到这里拿到有效签名 token。
+   *   契约: caller 必须把【真实测试退出码】交进来(执行器只对真实结果签名)。
+   *   远端 MCP 客户端即使能调用本工具,也只能拿到\"对它自报退出码的签名\"——但生产部署应把本工具
+   *   限定为【仅本地执行器可达】(不暴露给不可信客户端);本仓库默认进程内执行器走 this.executor。
+   * @param {object} args {exit_code|exitCode, test_cmd, commit_hash, patch_hash, source}
+   * @returns {object} 带 {nonce, ts, attestation:{sig}} 的 verification,回 report_outcome 时原样带上即被信任。
+   */
+  issueAttestation(args = {}) {
+    const exitCode = (typeof args.exit_code === "number") ? args.exit_code
+                   : (typeof args.exitCode === "number") ? args.exitCode : null;
+    return this.executor.runAndAttest({
+      source: args.source ?? "executor",
+      exitCode,
+      testCmd: args.test_cmd ?? args.testCmd ?? null,
+      commitHash: args.commit_hash ?? args.commitHash ?? null,
+      patchHash: args.patch_hash ?? args.patchHash ?? null,
+    });
   }
 
   /** 任务级反馈：整任务成/败 → 调协调变量 μ（稳定性条件），并自动持久化技能。 */
