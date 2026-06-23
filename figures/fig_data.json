@@ -1,3310 +1,4942 @@
 {
   "meta": {
-    "title": "Metacognitive Compute Scheduler — figure data",
-    "seed": 20260607,
-    "tasks": 60,
-    "stepsPerTask": 8,
-    "regimeShiftAt": 30,
-    "costModel": {
-      "cheap": 1,
-      "deep": 5,
-      "critTh": 0.55
+    "title": "Meso-scale auto-cluster scheduler on real SWE-bench Pro trajectories",
+    "dataSource": "SWE-bench Pro (sweap_eval_full_v2.jsonl)",
+    "provenance": {
+      "real": "co-changed files & symbols parsed from gold patches; repo/path/tests are real",
+      "modeled": "per-step hint noise, System2 success rate, distractor steps (real files from other same-repo instances)"
     },
-    "generated": "2026-06-22T10:10:05.225Z"
+    "seeds": 24,
+    "sessionsPerSeed": 60,
+    "noise": 0.3,
+    "traceSessions": 120,
+    "costModel": {
+      "cheapTok": 1,
+      "deepTok": 8,
+      "critTh": 0.6,
+      "s2Success": 0.9
+    },
+    "reposAvailable": [
+      "ansible(84)",
+      "flipt(84)",
+      "openlibrary(73)",
+      "webclients(62)",
+      "teleport(58)",
+      "qutebrowser(56)",
+      "navidrome(52)",
+      "vuls(52)",
+      "element-web(47)",
+      "NodeBB(41)",
+      "tutanota(17)"
+    ],
+    "selected10": [
+      {
+        "instance": "instance_element-hq__element-web-b7fea97bb68c6628a644580076f840109132f074-vnan",
+        "repo": "element-hq/element-web",
+        "nfiles": 6,
+        "ftp": 16
+      },
+      {
+        "instance": "instance_qutebrowser__qutebrowser-1943fa072ec3df5a87e18a23b0916f134c131016-vafb3e8e01b31319c66c4e666b8a3b1d8ba55db24",
+        "repo": "qutebrowser/qutebrowser",
+        "nfiles": 5,
+        "ftp": 4
+      },
+      {
+        "instance": "instance_NodeBB__NodeBB-51d8f3b195bddb13a13ddc0de110722774d9bb1b-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e",
+        "repo": "NodeBB/NodeBB",
+        "nfiles": 5,
+        "ftp": 4
+      },
+      {
+        "instance": "instance_internetarchive__openlibrary-53d376b148897466bb86d5accb51912bbbe9a8ed-v08d8e8889ec945ab821fb156c04c7d2e2810debb",
+        "repo": "internetarchive/openlibrary",
+        "nfiles": 4,
+        "ftp": 4
+      },
+      {
+        "instance": "instance_ansible__ansible-748f534312f2073a25a87871f5bd05882891b8c4-v0f01c69f1e2528b935359cfe578530722bca2c59",
+        "repo": "ansible/ansible",
+        "nfiles": 2,
+        "ftp": 3
+      },
+      {
+        "instance": "instance_future-architect__vuls-61c39637f2f3809e1b5dad05f0c57c799dce1587",
+        "repo": "future-architect/vuls",
+        "nfiles": 4,
+        "ftp": 2
+      },
+      {
+        "instance": "instance_flipt-io__flipt-f36bd61fb1cee4669de1f00e59da462bfeae8765",
+        "repo": "flipt-io/flipt",
+        "nfiles": 3,
+        "ftp": 2
+      },
+      {
+        "instance": "instance_tutao__tutanota-40e94dee2bcec2b63f362da283123e9df1874cc1-vc4e41fd0029957297843cb9dec4a25c7c756f029",
+        "repo": "tutao/tutanota",
+        "nfiles": 5,
+        "ftp": 2
+      },
+      {
+        "instance": "instance_gravitational__teleport-02d1efb8560a1aa1c72cfb1c08edd8b84a9511b4-vce94f93ad1030e3136852817f2423c1b3ac37bc4",
+        "repo": "gravitational/teleport",
+        "nfiles": 2,
+        "ftp": 1
+      },
+      {
+        "instance": "instance_protonmail__webclients-4feccbc9990980aee26ea29035f8f931d6089895",
+        "repo": "protonmail/webclients",
+        "nfiles": 3,
+        "ftp": 1
+      }
+    ],
+    "generated": "2026-06-23T06:30:30.347Z"
   },
   "armBars": [
     {
-      "name": "always-System2",
-      "cost": 2400,
-      "save": 0,
-      "mishandled": 0,
-      "overdeep": 258
+      "name": "always-S2",
+      "tok": 9838,
+      "miss": 83.08,
+      "overdeep": 399.88,
+      "s2": 1229.75,
+      "prFail": 58.17
     },
     {
-      "name": "static-skill",
-      "cost": 1884,
-      "save": 21.5,
-      "mishandled": 128,
-      "overdeep": 97
+      "name": "step",
+      "tok": 7765.13,
+      "miss": 101.17,
+      "overdeep": 123.79,
+      "s2": 933.63,
+      "prFail": 65.29
     },
     {
-      "name": "conscious",
-      "cost": 1692,
-      "save": 29.5,
-      "mishandled": 108,
-      "overdeep": 54
+      "name": "cluster",
+      "tok": 7837.17,
+      "miss": 99.83,
+      "overdeep": 132.67,
+      "s2": 943.92,
+      "prFail": 64.83
     }
   ],
+  "m1m2": {
+    "subtasksPerSeed": 147,
+    "M1": {
+      "name": "critical-subtask miss (cluster - step)",
+      "mean": -1.33,
+      "t": -3.14,
+      "p": 0.0017,
+      "winRate": 58,
+      "pass": true
+    },
+    "M2": {
+      "name": "System2 calls (cluster - step)",
+      "mean": 10.29,
+      "t": 8.24,
+      "p": 0,
+      "tokenDelta": 72.04,
+      "baseS2": 933.63,
+      "clusterS2": 943.92,
+      "budgetSlack": 0.1,
+      "pass": true
+    },
+    "stepMiss": {
+      "mean": 101.17,
+      "std": 33.14
+    },
+    "clusterMiss": {
+      "mean": 99.83,
+      "std": 32.49
+    }
+  },
   "learningCurve": [
     {
       "batch": 1,
-      "taskRange": "1-6",
-      "mishandleRate": 0,
-      "regime": "A"
+      "sessionRange": "1-12",
+      "missRate": 0.0649
     },
     {
       "batch": 2,
-      "taskRange": "7-12",
-      "mishandleRate": 0.0417,
-      "regime": "A"
+      "sessionRange": "13-24",
+      "missRate": 0.0573
     },
     {
       "batch": 3,
-      "taskRange": "13-18",
-      "mishandleRate": 0.2292,
-      "regime": "A"
+      "sessionRange": "25-36",
+      "missRate": 0.0688
     },
     {
       "batch": 4,
-      "taskRange": "19-24",
-      "mishandleRate": 0.2083,
-      "regime": "A"
+      "sessionRange": "37-48",
+      "missRate": 0.0233
     },
     {
       "batch": 5,
-      "taskRange": "25-30",
-      "mishandleRate": 0.1042,
-      "regime": "A"
+      "sessionRange": "49-60",
+      "missRate": 0.0933
     },
     {
       "batch": 6,
-      "taskRange": "31-36",
-      "mishandleRate": 0.4792,
-      "regime": "B"
+      "sessionRange": "61-72",
+      "missRate": 0.082
     },
     {
       "batch": 7,
-      "taskRange": "37-42",
-      "mishandleRate": 0.1667,
-      "regime": "B"
+      "sessionRange": "73-84",
+      "missRate": 0.0784
     },
     {
       "batch": 8,
-      "taskRange": "43-48",
-      "mishandleRate": 0.1667,
-      "regime": "B"
+      "sessionRange": "85-96",
+      "missRate": 0.0711
     },
     {
       "batch": 9,
-      "taskRange": "49-54",
-      "mishandleRate": 0.4792,
-      "regime": "B"
+      "sessionRange": "97-108",
+      "missRate": 0.0774
     },
     {
       "batch": 10,
-      "taskRange": "55-60",
-      "mishandleRate": 0.375,
-      "regime": "B"
+      "sessionRange": "109-120",
+      "missRate": 0.0847
     }
   ],
   "muTrace": [
     {
-      "task": 1,
-      "mu": 0.97,
-      "regime": "A"
+      "session": 1,
+      "mu": 0.9
     },
     {
-      "task": 2,
-      "mu": 0.94,
-      "regime": "A"
+      "session": 2,
+      "mu": 0.8
     },
     {
-      "task": 3,
-      "mu": 0.91,
-      "regime": "A"
+      "session": 3,
+      "mu": 0.7
     },
     {
-      "task": 4,
-      "mu": 0.88,
-      "regime": "A"
+      "session": 4,
+      "mu": 0.6
     },
     {
-      "task": 5,
-      "mu": 0.85,
-      "regime": "A"
+      "session": 5,
+      "mu": 0.5
     },
     {
-      "task": 6,
-      "mu": 0.82,
-      "regime": "A"
+      "session": 6,
+      "mu": 0.4
     },
     {
-      "task": 7,
-      "mu": 0.79,
-      "regime": "A"
+      "session": 7,
+      "mu": 0.37
     },
     {
-      "task": 8,
-      "mu": 0.69,
-      "regime": "A"
+      "session": 8,
+      "mu": 0.34
     },
     {
-      "task": 9,
-      "mu": 0.66,
-      "regime": "A"
+      "session": 9,
+      "mu": 0.3
     },
     {
-      "task": 10,
-      "mu": 0.63,
-      "regime": "A"
+      "session": 10,
+      "mu": 0.3
     },
     {
-      "task": 11,
-      "mu": 0.53,
-      "regime": "A"
+      "session": 11,
+      "mu": 0.3
     },
     {
-      "task": 12,
-      "mu": 0.5,
-      "regime": "A"
+      "session": 12,
+      "mu": 0.3
     },
     {
-      "task": 13,
-      "mu": 0.4,
-      "regime": "A"
+      "session": 13,
+      "mu": 0.3
     },
     {
-      "task": 14,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 14,
+      "mu": 0.3
     },
     {
-      "task": 15,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 15,
+      "mu": 0.3
     },
     {
-      "task": 16,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 16,
+      "mu": 0.3
     },
     {
-      "task": 17,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 17,
+      "mu": 0.3
     },
     {
-      "task": 18,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 18,
+      "mu": 0.3
     },
     {
-      "task": 19,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 19,
+      "mu": 0.3
     },
     {
-      "task": 20,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 20,
+      "mu": 0.3
     },
     {
-      "task": 21,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 21,
+      "mu": 0.3
     },
     {
-      "task": 22,
-      "mu": 0.3,
-      "regime": "A"
+      "session": 22,
+      "mu": 0.3
     },
     {
-      "task": 23,
-      "mu": 0.4,
-      "regime": "A"
+      "session": 23,
+      "mu": 0.3
     },
     {
-      "task": 24,
-      "mu": 0.5,
-      "regime": "A"
+      "session": 24,
+      "mu": 0.3
     },
     {
-      "task": 25,
-      "mu": 0.6,
-      "regime": "A"
+      "session": 25,
+      "mu": 0.3
     },
     {
-      "task": 26,
-      "mu": 0.7,
-      "regime": "A"
+      "session": 26,
+      "mu": 0.3
     },
     {
-      "task": 27,
-      "mu": 0.67,
-      "regime": "A"
+      "session": 27,
+      "mu": 0.3
     },
     {
-      "task": 28,
-      "mu": 0.64,
-      "regime": "A"
+      "session": 28,
+      "mu": 0.3
     },
     {
-      "task": 29,
-      "mu": 0.61,
-      "regime": "A"
+      "session": 29,
+      "mu": 0.3
     },
     {
-      "task": 30,
-      "mu": 0.51,
-      "regime": "A"
+      "session": 30,
+      "mu": 0.3
     },
     {
-      "task": 31,
-      "mu": 0.41,
-      "regime": "B"
+      "session": 31,
+      "mu": 0.3
     },
     {
-      "task": 32,
-      "mu": 0.31,
-      "regime": "B"
+      "session": 32,
+      "mu": 0.3
     },
     {
-      "task": 33,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 33,
+      "mu": 0.3
     },
     {
-      "task": 34,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 34,
+      "mu": 0.3
     },
     {
-      "task": 35,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 35,
+      "mu": 0.3
     },
     {
-      "task": 36,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 36,
+      "mu": 0.3
     },
     {
-      "task": 37,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 37,
+      "mu": 0.3
     },
     {
-      "task": 38,
-      "mu": 0.4,
-      "regime": "B"
+      "session": 38,
+      "mu": 0.3
     },
     {
-      "task": 39,
-      "mu": 0.5,
-      "regime": "B"
+      "session": 39,
+      "mu": 0.3
     },
     {
-      "task": 40,
-      "mu": 0.47,
-      "regime": "B"
+      "session": 40,
+      "mu": 0.3
     },
     {
-      "task": 41,
-      "mu": 0.57,
-      "regime": "B"
+      "session": 41,
+      "mu": 0.3
     },
     {
-      "task": 42,
-      "mu": 0.67,
-      "regime": "B"
+      "session": 42,
+      "mu": 0.3
     },
     {
-      "task": 43,
-      "mu": 0.64,
-      "regime": "B"
+      "session": 43,
+      "mu": 0.3
     },
     {
-      "task": 44,
-      "mu": 0.74,
-      "regime": "B"
+      "session": 44,
+      "mu": 0.3
     },
     {
-      "task": 45,
-      "mu": 0.71,
-      "regime": "B"
+      "session": 45,
+      "mu": 0.3
     },
     {
-      "task": 46,
-      "mu": 0.61,
-      "regime": "B"
+      "session": 46,
+      "mu": 0.3
     },
     {
-      "task": 47,
-      "mu": 0.51,
-      "regime": "B"
+      "session": 47,
+      "mu": 0.3
     },
     {
-      "task": 48,
-      "mu": 0.41,
-      "regime": "B"
+      "session": 48,
+      "mu": 0.3
     },
     {
-      "task": 49,
-      "mu": 0.31,
-      "regime": "B"
+      "session": 49,
+      "mu": 0.3
     },
     {
-      "task": 50,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 50,
+      "mu": 0.3
     },
     {
-      "task": 51,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 51,
+      "mu": 0.3
     },
     {
-      "task": 52,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 52,
+      "mu": 0.3
     },
     {
-      "task": 53,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 53,
+      "mu": 0.3
     },
     {
-      "task": 54,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 54,
+      "mu": 0.3
     },
     {
-      "task": 55,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 55,
+      "mu": 0.3
     },
     {
-      "task": 56,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 56,
+      "mu": 0.3
     },
     {
-      "task": 57,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 57,
+      "mu": 0.3
     },
     {
-      "task": 58,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 58,
+      "mu": 0.3
     },
     {
-      "task": 59,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 59,
+      "mu": 0.3
     },
     {
-      "task": 60,
-      "mu": 0.3,
-      "regime": "B"
+      "session": 60,
+      "mu": 0.3
+    },
+    {
+      "session": 61,
+      "mu": 0.3
+    },
+    {
+      "session": 62,
+      "mu": 0.3
+    },
+    {
+      "session": 63,
+      "mu": 0.3
+    },
+    {
+      "session": 64,
+      "mu": 0.3
+    },
+    {
+      "session": 65,
+      "mu": 0.3
+    },
+    {
+      "session": 66,
+      "mu": 0.3
+    },
+    {
+      "session": 67,
+      "mu": 0.3
+    },
+    {
+      "session": 68,
+      "mu": 0.3
+    },
+    {
+      "session": 69,
+      "mu": 0.3
+    },
+    {
+      "session": 70,
+      "mu": 0.3
+    },
+    {
+      "session": 71,
+      "mu": 0.3
+    },
+    {
+      "session": 72,
+      "mu": 0.3
+    },
+    {
+      "session": 73,
+      "mu": 0.3
+    },
+    {
+      "session": 74,
+      "mu": 0.3
+    },
+    {
+      "session": 75,
+      "mu": 0.3
+    },
+    {
+      "session": 76,
+      "mu": 0.3
+    },
+    {
+      "session": 77,
+      "mu": 0.3
+    },
+    {
+      "session": 78,
+      "mu": 0.3
+    },
+    {
+      "session": 79,
+      "mu": 0.3
+    },
+    {
+      "session": 80,
+      "mu": 0.3
+    },
+    {
+      "session": 81,
+      "mu": 0.3
+    },
+    {
+      "session": 82,
+      "mu": 0.3
+    },
+    {
+      "session": 83,
+      "mu": 0.3
+    },
+    {
+      "session": 84,
+      "mu": 0.3
+    },
+    {
+      "session": 85,
+      "mu": 0.3
+    },
+    {
+      "session": 86,
+      "mu": 0.3
+    },
+    {
+      "session": 87,
+      "mu": 0.3
+    },
+    {
+      "session": 88,
+      "mu": 0.3
+    },
+    {
+      "session": 89,
+      "mu": 0.3
+    },
+    {
+      "session": 90,
+      "mu": 0.3
+    },
+    {
+      "session": 91,
+      "mu": 0.3
+    },
+    {
+      "session": 92,
+      "mu": 0.3
+    },
+    {
+      "session": 93,
+      "mu": 0.3
+    },
+    {
+      "session": 94,
+      "mu": 0.3
+    },
+    {
+      "session": 95,
+      "mu": 0.3
+    },
+    {
+      "session": 96,
+      "mu": 0.3
+    },
+    {
+      "session": 97,
+      "mu": 0.3
+    },
+    {
+      "session": 98,
+      "mu": 0.3
+    },
+    {
+      "session": 99,
+      "mu": 0.3
+    },
+    {
+      "session": 100,
+      "mu": 0.3
+    },
+    {
+      "session": 101,
+      "mu": 0.3
+    },
+    {
+      "session": 102,
+      "mu": 0.3
+    },
+    {
+      "session": 103,
+      "mu": 0.3
+    },
+    {
+      "session": 104,
+      "mu": 0.3
+    },
+    {
+      "session": 105,
+      "mu": 0.3
+    },
+    {
+      "session": 106,
+      "mu": 0.3
+    },
+    {
+      "session": 107,
+      "mu": 0.3
+    },
+    {
+      "session": 108,
+      "mu": 0.3
+    },
+    {
+      "session": 109,
+      "mu": 0.3
+    },
+    {
+      "session": 110,
+      "mu": 0.3
+    },
+    {
+      "session": 111,
+      "mu": 0.3
+    },
+    {
+      "session": 112,
+      "mu": 0.3
+    },
+    {
+      "session": 113,
+      "mu": 0.3
+    },
+    {
+      "session": 114,
+      "mu": 0.3
+    },
+    {
+      "session": 115,
+      "mu": 0.3
+    },
+    {
+      "session": 116,
+      "mu": 0.3
+    },
+    {
+      "session": 117,
+      "mu": 0.3
+    },
+    {
+      "session": 118,
+      "mu": 0.3
+    },
+    {
+      "session": 119,
+      "mu": 0.3
+    },
+    {
+      "session": 120,
+      "mu": 0.3
     }
   ],
   "biddingScatter": [
     {
-      "robGain": 1,
-      "ecoCost": 0.1,
+      "robGain": 1000006.6,
+      "ecoCost": 1.4,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.7197,
-      "ecoCost": 0.1192,
+      "robGain": 1000006.2812,
+      "ecoCost": 1.8429,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.7054,
-      "ecoCost": 0.1384,
+      "robGain": 1000006.8731,
+      "ecoCost": 1.6787,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.7058,
-      "ecoCost": 0.1576,
+      "robGain": 1000007.0628,
+      "ecoCost": 1.7827,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.6509,
-      "ecoCost": 0.1768,
+      "robGain": 1000006.3341,
+      "ecoCost": 2.4989,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.5893,
-      "ecoCost": 0.196,
+      "robGain": 2000006.4413,
+      "ecoCost": 2.6578,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.6721,
-      "ecoCost": 0.2152,
+      "robGain": 2000009.1381,
+      "ecoCost": 2.0503,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 1.44
     },
     {
-      "robGain": 0.5731,
-      "ecoCost": 0.2344,
+      "robGain": 1000006.2472,
+      "ecoCost": 3.248,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.5395,
-      "ecoCost": 0.1,
+      "robGain": 1000006.7094,
+      "ecoCost": 3.1702,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.5566,
-      "ecoCost": 0.1192,
+      "robGain": 4.2503,
+      "ecoCost": 2.8072,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4362,
-      "ecoCost": 0.1384,
+      "robGain": 1000006.8601,
+      "ecoCost": 1.1044,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.5946,
-      "ecoCost": 0.1576,
+      "robGain": 5.4648,
+      "ecoCost": 2.3684,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.685,
-      "ecoCost": 0.1768,
+      "robGain": 1000006.0969,
+      "ecoCost": 2.1305,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.6102,
-      "ecoCost": 0.196,
+      "robGain": 1000006.9853,
+      "ecoCost": 1.7028,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.5013,
-      "ecoCost": 0.2152,
+      "robGain": 3.6702,
+      "ecoCost": 3.0915,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3363,
-      "ecoCost": 0.2344,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 5.3714,
+      "ecoCost": 1.9043,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4666,
-      "ecoCost": 0.1,
+      "robGain": 4.6006,
+      "ecoCost": 2.777,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3543,
-      "ecoCost": 0.1192,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 5.3458,
+      "ecoCost": 2.3863,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4226,
-      "ecoCost": 0.1204,
+      "robGain": 2000006.0376,
+      "ecoCost": 2.0403,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4887,
-      "ecoCost": 0.1396,
+      "robGain": 1000006.8778,
+      "ecoCost": 2.3205,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.4236,
-      "ecoCost": 0.1588,
+      "robGain": 5.3489,
+      "ecoCost": 3.003,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4583,
-      "ecoCost": 0.178,
+      "robGain": 1000005.5049,
+      "ecoCost": 3.1082,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2578,
-      "ecoCost": 0.1972,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000005.4935,
+      "ecoCost": 3.2761,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4538,
-      "ecoCost": 0.1984,
+      "robGain": 4.8211,
+      "ecoCost": 1.8085,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4446,
-      "ecoCost": 0.1,
+      "robGain": 1000005.3223,
+      "ecoCost": 1.5615,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3091,
-      "ecoCost": 0.1192,
+      "robGain": 1000005.3917,
+      "ecoCost": 1.7258,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4648,
-      "ecoCost": 0.1384,
+      "robGain": 3.9605,
+      "ecoCost": 3.3193,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4579,
-      "ecoCost": 0.1576,
+      "robGain": 5.3812,
+      "ecoCost": 3.0538,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.4362,
-      "ecoCost": 0.1768,
+      "robGain": 3.7952,
+      "ecoCost": 2.5165,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3915,
-      "ecoCost": 0.196,
+      "robGain": 3.7064,
+      "ecoCost": 2.8455,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3497,
-      "ecoCost": 0.2152,
+      "robGain": 1000004.9695,
+      "ecoCost": 1.6725,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2293,
-      "ecoCost": 0.2344,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 4.5643,
+      "ecoCost": 2.281,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2797,
-      "ecoCost": 0.1,
+      "robGain": 1000005.1587,
+      "ecoCost": 1.7071,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3689,
-      "ecoCost": 0.1192,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000004.9125,
+      "ecoCost": 2.211,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3786,
-      "ecoCost": 0.1204,
+      "robGain": 3.1632,
+      "ecoCost": 3.136,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2226,
-      "ecoCost": 0.1396,
+      "robGain": 3.2217,
+      "ecoCost": 3.2884,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2861,
-      "ecoCost": 0.1408,
+      "robGain": 4.1274,
+      "ecoCost": 2.2392,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2089,
-      "ecoCost": 0.16,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 4.084,
+      "ecoCost": 2.4554,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.441,
-      "ecoCost": 0.1612,
+      "robGain": 1000004.4362,
+      "ecoCost": 2.2163,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3482,
-      "ecoCost": 0.1804,
+      "robGain": 3.8752,
+      "ecoCost": 3.1947,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4404,
-      "ecoCost": 0.1,
+      "robGain": 3.6501,
+      "ecoCost": 3.0202,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0.63
     },
     {
-      "robGain": 0.4185,
-      "ecoCost": 0.1192,
+      "robGain": 1000004.0082,
+      "ecoCost": 1.6084,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3228,
-      "ecoCost": 0.1384,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.8789,
+      "ecoCost": 1.9824,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3263,
-      "ecoCost": 0.1396,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.7296,
+      "ecoCost": 2.4617,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2035,
-      "ecoCost": 0.1408,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.8303,
+      "ecoCost": 1.436,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4074,
-      "ecoCost": 0.142,
+      "robGain": 3.6185,
+      "ecoCost": 1.976,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4755,
-      "ecoCost": 0.1612,
+      "robGain": 1000003.7315,
+      "ecoCost": 1.2777,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1595,
-      "ecoCost": 0.1804,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000004.5694,
+      "ecoCost": 1.5579,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.2314,
-      "ecoCost": 0.1,
+      "robGain": 1000004.0208,
+      "ecoCost": 1.0993,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3961,
-      "ecoCost": 0.1192,
+      "robGain": 3.4761,
+      "ecoCost": 2.3978,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2548,
-      "ecoCost": 0.1384,
-      "ignite": 1,
-      "trueCritical": 0
+      "robGain": 3.083,
+      "ecoCost": 3.327,
+      "ignite": 0,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3173,
-      "ecoCost": 0.1576,
+      "robGain": 1000003.5959,
+      "ecoCost": 1.1526,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2078,
-      "ecoCost": 0.1768,
+      "robGain": 1000003.7486,
+      "ecoCost": 1.0437,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3299,
-      "ecoCost": 0.196,
+      "robGain": 2.5798,
+      "ecoCost": 3.8713,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2747,
-      "ecoCost": 0.1972,
+      "robGain": 2.5209,
+      "ecoCost": 4.0886,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2583,
-      "ecoCost": 0.1984,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.334,
+      "ecoCost": 1.6579,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4631,
-      "ecoCost": 0.1,
+      "robGain": 3.0754,
+      "ecoCost": 2.3909,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2336,
-      "ecoCost": 0.1192,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4225,
+      "ecoCost": 1.7779,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3688,
-      "ecoCost": 0.1204,
+      "robGain": 1000003.5194,
+      "ecoCost": 1.7931,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2407,
-      "ecoCost": 0.1396,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.3231,
+      "ecoCost": 1.6819,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.4059,
-      "ecoCost": 0.1456,
+      "robGain": 3.3719,
+      "ecoCost": 1.8088,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3389,
-      "ecoCost": 0.1648,
+      "robGain": 1000003.4881,
+      "ecoCost": 1.3922,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2004,
-      "ecoCost": 0.184,
+      "robGain": 1000003.5653,
+      "ecoCost": 1.3789,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2534,
-      "ecoCost": 0.2032,
+      "robGain": 1000003.4974,
+      "ecoCost": 1.7602,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3265,
-      "ecoCost": 0.1,
+      "robGain": 1000003.6094,
+      "ecoCost": 1.7418,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2129,
-      "ecoCost": 0.1192,
+      "robGain": 3.2416,
+      "ecoCost": 2.7175,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2788,
-      "ecoCost": 0.1384,
+      "robGain": 1000003.8018,
+      "ecoCost": 1.6311,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1967,
-      "ecoCost": 0.1576,
+      "robGain": 4.2579,
+      "ecoCost": 2.7759,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.2387,
-      "ecoCost": 0.1768,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.2992,
+      "ecoCost": 3.0647,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1903,
-      "ecoCost": 0.178,
+      "robGain": 1000003.5699,
+      "ecoCost": 1.1335,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1793,
-      "ecoCost": 0.1972,
+      "robGain": 1000003.6382,
+      "ecoCost": 1.2121,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1848,
-      "ecoCost": 0.2164,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6859,
+      "ecoCost": 1.1926,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1533,
-      "ecoCost": 0.1,
+      "robGain": 3.296,
+      "ecoCost": 2.2173,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2804,
-      "ecoCost": 0.1192,
+      "robGain": 1000003.5848,
+      "ecoCost": 1.1006,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1454,
-      "ecoCost": 0.1384,
+      "robGain": 1000003.6046,
+      "ecoCost": 1.2868,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1924,
-      "ecoCost": 0.1576,
+      "robGain": 2.7452,
+      "ecoCost": 3.4271,
+      "ignite": 0,
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.9456,
+      "ecoCost": 3.068,
+      "ignite": 0,
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 5.2868,
+      "ecoCost": 2.2773,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1785,
-      "ecoCost": 0.1768,
+      "robGain": 3.199,
+      "ecoCost": 2.1113,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.3264,
-      "ecoCost": 0.196,
+      "robGain": 1000003.5107,
+      "ecoCost": 1.5771,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2176,
-      "ecoCost": 0.2152,
+      "robGain": 3.3182,
+      "ecoCost": 1.9232,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2154,
-      "ecoCost": 0.2344,
+      "robGain": 1000002.9224,
+      "ecoCost": 3.0333,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1264,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000004.6574,
+      "ecoCost": 1.3361,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.2305,
-      "ecoCost": 0.1012,
+      "robGain": 1000003.6589,
+      "ecoCost": 1.7134,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2126,
-      "ecoCost": 0.1204,
+      "robGain": 1000003.6296,
+      "ecoCost": 1.937,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1456,
-      "ecoCost": 0.1396,
+      "robGain": 2.7748,
+      "ecoCost": 4.0667,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2381,
-      "ecoCost": 0.1408,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4702,
+      "ecoCost": 2.6079,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5741,
+      "ecoCost": 1.1242,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.188,
-      "ecoCost": 0.142,
+      "robGain": 2.7254,
+      "ecoCost": 3.2407,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1889,
-      "ecoCost": 0.148,
+      "robGain": 1000003.408,
+      "ecoCost": 1.8822,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2716,
-      "ecoCost": 0.1672,
+      "robGain": 1000003.9,
+      "ecoCost": 0.9472,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0941,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.0912,
+      "ecoCost": 2.1974,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1457,
-      "ecoCost": 0.1012,
+      "robGain": 2.832,
+      "ecoCost": 3.0038,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0965,
-      "ecoCost": 0.1024,
+      "robGain": 2.8262,
+      "ecoCost": 3.1029,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1386,
-      "ecoCost": 0.1036,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7016,
+      "ecoCost": 1.3161,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1402,
-      "ecoCost": 0.1048,
+      "robGain": 1000003.5928,
+      "ecoCost": 1.7882,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.116,
-      "ecoCost": 0.124,
+      "robGain": 1000003.6555,
+      "ecoCost": 1.8794,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1992,
-      "ecoCost": 0.1432,
-      "ignite": 1,
-      "trueCritical": 1
+      "robGain": 2.9451,
+      "ecoCost": 3.6884,
+      "ignite": 0,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.177,
-      "ecoCost": 0.1624,
+      "robGain": 3.2957,
+      "ecoCost": 1.8965,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0968,
-      "ecoCost": 0.1,
+      "robGain": 2.9084,
+      "ecoCost": 2.9876,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0956,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7293,
+      "ecoCost": 1.3266,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0686,
-      "ecoCost": 0.1024,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5907,
+      "ecoCost": 1.8649,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1857,
-      "ecoCost": 0.1036,
+      "robGain": 3.1185,
+      "ecoCost": 3.0726,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.12,
-      "ecoCost": 0.1228,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.533,
+      "ecoCost": 2.382,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1057,
-      "ecoCost": 0.1288,
+      "robGain": 3.024,
+      "ecoCost": 3.6715,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1125,
-      "ecoCost": 0.13,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 2.8559,
+      "ecoCost": 2.8019,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1727,
-      "ecoCost": 0.1312,
+      "robGain": 1000003.63,
+      "ecoCost": 1.3119,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0588,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.4654,
+      "ecoCost": 1.8361,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0455,
-      "ecoCost": 0.106,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7477,
+      "ecoCost": 1.3673,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0442,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4718,
+      "ecoCost": 1.4331,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7342,
+      "ecoCost": 1.0805,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0475,
-      "ecoCost": 0.1084,
+      "robGain": 2.6846,
+      "ecoCost": 3.1057,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0797,
-      "ecoCost": 0.1096,
+      "robGain": 1000003.4727,
+      "ecoCost": 1.5127,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0733,
-      "ecoCost": 0.1288,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.3144,
+      "ecoCost": 2.095,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0614,
-      "ecoCost": 0.13,
+      "robGain": 2.8631,
+      "ecoCost": 3.3283,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0574,
-      "ecoCost": 0.1312,
+      "robGain": 2.8003,
+      "ecoCost": 3.6262,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2361,
+      "ecoCost": 2.8162,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1195,
-      "ecoCost": 0.1,
+      "robGain": 2.4968,
+      "ecoCost": 4.6175,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1094,
-      "ecoCost": 0.106,
+      "robGain": 1000003.6026,
+      "ecoCost": 2.3184,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0499,
-      "ecoCost": 0.1252,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7139,
+      "ecoCost": 0.8135,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0321,
-      "ecoCost": 0.1264,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.3418,
+      "ecoCost": 1.8756,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0481,
-      "ecoCost": 0.1276,
+      "robGain": 1000003.5856,
+      "ecoCost": 1.5643,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0716,
-      "ecoCost": 0.1468,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5075,
+      "ecoCost": 1.9683,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0931,
-      "ecoCost": 0.1528,
+      "robGain": 1000003.6755,
+      "ecoCost": 1.6814,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0881,
-      "ecoCost": 0.172,
+      "robGain": 2.6688,
+      "ecoCost": 3.1408,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0218,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000004.5308,
+      "ecoCost": 1.1615,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.1263,
-      "ecoCost": 0.1012,
+      "robGain": 2.7133,
+      "ecoCost": 3.4308,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0228,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5062,
+      "ecoCost": 1.8271,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6465,
+      "ecoCost": 0.9634,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1118,
-      "ecoCost": 0.1084,
+      "robGain": 1000003.4874,
+      "ecoCost": 1.4753,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0496,
-      "ecoCost": 0.1276,
+      "robGain": 2.6974,
+      "ecoCost": 3.4613,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0755,
-      "ecoCost": 0.1288,
+      "robGain": 1000003.5198,
+      "ecoCost": 1.2448,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0409,
-      "ecoCost": 0.148,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.7907,
+      "ecoCost": 0.8012,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0585,
-      "ecoCost": 0.154,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7467,
+      "ecoCost": 1.1295,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1061,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4262,
+      "ecoCost": 2.072,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0409,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.665,
+      "ecoCost": 1.6997,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0924,
-      "ecoCost": 0.1024,
+      "robGain": 1000003.4447,
+      "ecoCost": 2.4198,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0449,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7153,
+      "ecoCost": 0.8922,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.056,
-      "ecoCost": 0.1228,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.509,
+      "ecoCost": 1.5088,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0448,
-      "ecoCost": 0.124,
+      "robGain": 1000004.3762,
+      "ecoCost": 1.8123,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.053,
-      "ecoCost": 0.1432,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6072,
+      "ecoCost": 1.2043,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0426,
-      "ecoCost": 0.1492,
+      "robGain": 2.8165,
+      "ecoCost": 3.0477,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0494,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6645,
+      "ecoCost": 1.3218,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0199,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.816,
+      "ecoCost": 1.1435,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0232,
-      "ecoCost": 0.1024,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5196,
+      "ecoCost": 1.9605,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0227,
-      "ecoCost": 0.1084,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5994,
+      "ecoCost": 1.1449,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0834,
-      "ecoCost": 0.1144,
+      "robGain": 1000003.4043,
+      "ecoCost": 1.7367,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0498,
-      "ecoCost": 0.1336,
+      "robGain": 2.6547,
+      "ecoCost": 3.561,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0364,
-      "ecoCost": 0.1396,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5383,
+      "ecoCost": 1.7557,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.047,
-      "ecoCost": 0.1408,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.3785,
+      "ecoCost": 2.3412,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0427,
-      "ecoCost": 0.1,
+      "robGain": 2.7876,
+      "ecoCost": 2.9488,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0372,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7888,
+      "ecoCost": 0.8824,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0217,
-      "ecoCost": 0.1024,
+      "robGain": 2.8029,
+      "ecoCost": 3.3036,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0757,
-      "ecoCost": 0.1036,
+      "robGain": 1000003.7558,
+      "ecoCost": 1.3444,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0706,
-      "ecoCost": 0.1228,
+      "robGain": 1000003.4697,
+      "ecoCost": 2.1387,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.034,
-      "ecoCost": 0.142,
+      "robGain": 2.5178,
+      "ecoCost": 4.4844,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0319,
-      "ecoCost": 0.1432,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4692,
+      "ecoCost": 2.5286,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0293,
-      "ecoCost": 0.1444,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6084,
+      "ecoCost": 2.3775,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0399,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.873,
+      "ecoCost": 1.876,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1276,
-      "ecoCost": 0.1012,
+      "robGain": 2.5432,
+      "ecoCost": 3.492,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1103,
-      "ecoCost": 0.1072,
+      "robGain": 2.6607,
+      "ecoCost": 3.4659,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0228,
-      "ecoCost": 0.1132,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7313,
+      "ecoCost": 1.1732,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0703,
-      "ecoCost": 0.1144,
+      "robGain": 1000003.5862,
+      "ecoCost": 1.7261,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0412,
-      "ecoCost": 0.1336,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.5342,
+      "ecoCost": 2.5862,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0317,
-      "ecoCost": 0.1348,
+      "robGain": 1000003.6831,
+      "ecoCost": 0.8915,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0704,
-      "ecoCost": 0.154,
+      "robGain": 1000003.7925,
+      "ecoCost": 0.879,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1167,
-      "ecoCost": 0.1,
+      "robGain": 1000003.4081,
+      "ecoCost": 1.9636,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0897,
-      "ecoCost": 0.1192,
+      "robGain": 3.3342,
+      "ecoCost": 4.2862,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.0325,
-      "ecoCost": 0.1252,
+      "robGain": 2.5652,
+      "ecoCost": 3.4478,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0425,
-      "ecoCost": 0.1264,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.3852,
+      "ecoCost": 1.7841,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0644,
-      "ecoCost": 0.1324,
+      "robGain": 1000003.4788,
+      "ecoCost": 1.8064,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.058,
-      "ecoCost": 0.1516,
+      "robGain": 1000003.7989,
+      "ecoCost": 0.7014,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.046,
-      "ecoCost": 0.1708,
+      "robGain": 1000003.5475,
+      "ecoCost": 1.4906,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0418,
-      "ecoCost": 0.19,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.0625,
+      "ecoCost": 2.2611,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0305,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.708,
+      "ecoCost": 0.985,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0304,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6078,
+      "ecoCost": 1.4382,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0271,
-      "ecoCost": 0.1024,
+      "robGain": 2.3694,
+      "ecoCost": 4.4205,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0568,
-      "ecoCost": 0.1036,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.7666,
+      "ecoCost": 0.706,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5466,
+      "ecoCost": 1.4254,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6206,
+      "ecoCost": 1.4913,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0354,
-      "ecoCost": 0.1096,
+      "robGain": 2.6944,
+      "ecoCost": 3.3094,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0311,
-      "ecoCost": 0.1156,
+      "robGain": 2.5749,
+      "ecoCost": 3.7334,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0318,
-      "ecoCost": 0.1168,
+      "robGain": 2.4795,
+      "ecoCost": 4.1038,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0583,
-      "ecoCost": 0.118,
+      "robGain": 1000003.5134,
+      "ecoCost": 1.8928,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1034,
-      "ecoCost": 0.1,
+      "robGain": 1000003.4487,
+      "ecoCost": 2.2668,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0225,
-      "ecoCost": 0.1192,
+      "robGain": 2.7282,
+      "ecoCost": 4.0983,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0242,
-      "ecoCost": 0.1204,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5248,
+      "ecoCost": 1.2337,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0203,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6596,
+      "ecoCost": 1.1645,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0451,
-      "ecoCost": 0.1228,
+      "robGain": 2.6057,
+      "ecoCost": 3.665,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0372,
-      "ecoCost": 0.124,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.2286,
+      "ecoCost": 1.9737,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0563,
-      "ecoCost": 0.13,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.4372,
+      "ecoCost": 1.6685,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0354,
-      "ecoCost": 0.136,
+      "robGain": 2.6531,
+      "ecoCost": 3.6413,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1058,
-      "ecoCost": 0.1,
+      "robGain": 2.7466,
+      "ecoCost": 3.592,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0323,
-      "ecoCost": 0.1012,
+      "robGain": 2.5431,
+      "ecoCost": 4.1306,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0798,
-      "ecoCost": 0.1024,
+      "robGain": 1000003.5364,
+      "ecoCost": 2.0096,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0277,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5739,
+      "ecoCost": 2.1567,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0447,
-      "ecoCost": 0.1228,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6667,
+      "ecoCost": 2.1088,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0615,
-      "ecoCost": 0.1288,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6035,
+      "ecoCost": 1.2124,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0389,
-      "ecoCost": 0.13,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6368,
+      "ecoCost": 1.2968,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0629,
-      "ecoCost": 0.1312,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.642,
+      "ecoCost": 1.4438,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.038,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5791,
+      "ecoCost": 1.1898,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0377,
-      "ecoCost": 0.1012,
+      "robGain": 2.8873,
+      "ecoCost": 2.9625,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0877,
-      "ecoCost": 0.1024,
+      "robGain": 1000003.6469,
+      "ecoCost": 1.3608,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0541,
-      "ecoCost": 0.1216,
+      "robGain": 1000003.5407,
+      "ecoCost": 1.8272,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0461,
-      "ecoCost": 0.1408,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.3299,
+      "ecoCost": 1.7437,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1011,
-      "ecoCost": 0.1468,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.538,
+      "ecoCost": 1.5118,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0355,
-      "ecoCost": 0.1528,
+      "robGain": 3.1539,
+      "ecoCost": 3.9632,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0.6478
     },
     {
-      "robGain": 0.0312,
-      "ecoCost": 0.154,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5503,
+      "ecoCost": 1.2538,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1984,
-      "ecoCost": 0.1,
+      "robGain": 1000003.6197,
+      "ecoCost": 1.258,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0474,
-      "ecoCost": 0.1192,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4244,
+      "ecoCost": 1.8506,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0483,
-      "ecoCost": 0.1204,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.2543,
+      "ecoCost": 2.4588,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0488,
-      "ecoCost": 0.1216,
+      "robGain": 1000003.5133,
+      "ecoCost": 1.2594,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0479,
-      "ecoCost": 0.1408,
+      "robGain": 2.7469,
+      "ecoCost": 3.1209,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.064,
-      "ecoCost": 0.142,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5347,
+      "ecoCost": 1.4567,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1201,
-      "ecoCost": 0.1432,
+      "robGain": 1000003.7195,
+      "ecoCost": 1.2763,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.053,
-      "ecoCost": 0.1624,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.8591,
+      "ecoCost": 1.1246,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0375,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 4.2311,
+      "ecoCost": 2.5283,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.0363,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7553,
+      "ecoCost": 0.8031,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0658,
-      "ecoCost": 0.1024,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5007,
+      "ecoCost": 1.5273,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0545,
-      "ecoCost": 0.1036,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.2983,
+      "ecoCost": 2.1356,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1184,
-      "ecoCost": 0.1048,
+      "robGain": 1000003.6345,
+      "ecoCost": 1.6188,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1309,
-      "ecoCost": 0.124,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5061,
+      "ecoCost": 2.1394,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0471,
-      "ecoCost": 0.1252,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 4.1633,
+      "ecoCost": 2.9093,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.0466,
-      "ecoCost": 0.1264,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.9938,
+      "ecoCost": 3.4443,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.2185,
-      "ecoCost": 0.1,
+      "robGain": 1000003.6762,
+      "ecoCost": 0.9789,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0572,
-      "ecoCost": 0.1192,
+      "robGain": 2.7362,
+      "ecoCost": 3.2262,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0374,
-      "ecoCost": 0.1204,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.614,
+      "ecoCost": 1.4341,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.064,
-      "ecoCost": 0.1216,
+      "robGain": 1000003.5679,
+      "ecoCost": 1.6948,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.057,
-      "ecoCost": 0.1408,
+      "robGain": 2.6106,
+      "ecoCost": 3.347,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1416,
-      "ecoCost": 0.142,
+      "robGain": 1000003.5403,
+      "ecoCost": 1.3674,
       "ignite": 1,
-      "trueCritical": 1
-    },
-    {
-      "robGain": 0.0602,
-      "ecoCost": 0.1612,
-      "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0885,
-      "ecoCost": 0.1624,
+      "robGain": 1000003.5913,
+      "ecoCost": 1.4125,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1645,
-      "ecoCost": 0.1,
+      "robGain": 1000003.668,
+      "ecoCost": 1.4724,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0449,
-      "ecoCost": 0.1192,
+      "robGain": 2.5562,
+      "ecoCost": 4.1735,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1153,
-      "ecoCost": 0.1204,
+      "robGain": 1000003.7282,
+      "ecoCost": 0.8585,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0485,
-      "ecoCost": 0.1396,
+      "robGain": 2.7609,
+      "ecoCost": 3.2385,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0546,
-      "ecoCost": 0.1408,
+      "robGain": 1000003.5781,
+      "ecoCost": 1.5088,
       "ignite": 1,
-      "trueCritical": 1
-    },
-    {
-      "robGain": 0.1023,
-      "ecoCost": 0.16,
-      "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0525,
-      "ecoCost": 0.1612,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.662,
+      "ecoCost": 1.4088,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0902,
-      "ecoCost": 0.1624,
+      "robGain": 1000003.6047,
+      "ecoCost": 1.1329,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0642,
-      "ecoCost": 0.1,
+      "robGain": 2.7422,
+      "ecoCost": 3.28,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1824,
-      "ecoCost": 0.1012,
+      "robGain": 1000003.5075,
+      "ecoCost": 1.5939,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0679,
-      "ecoCost": 0.1204,
+      "robGain": 1000003.6779,
+      "ecoCost": 0.9702,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0587,
-      "ecoCost": 0.1396,
+      "robGain": 2.9768,
+      "ecoCost": 2.8356,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0803,
-      "ecoCost": 0.1588,
+      "robGain": 3.3915,
+      "ecoCost": 2.0724,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0829,
-      "ecoCost": 0.178,
+      "robGain": 1000003.6249,
+      "ecoCost": 1.7842,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0719,
-      "ecoCost": 0.1972,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.2926,
+      "ecoCost": 2.7529,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0455,
-      "ecoCost": 0.2032,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.3203,
+      "ecoCost": 2.8499,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0568,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4854,
+      "ecoCost": 2.7133,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0614,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5239,
+      "ecoCost": 1.3125,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0573,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6677,
+      "ecoCost": 1.1514,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0454,
-      "ecoCost": 0.1132,
+      "robGain": 2.3795,
+      "ecoCost": 4.2446,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0798,
-      "ecoCost": 0.1144,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.746,
+      "ecoCost": 0.8191,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0387,
-      "ecoCost": 0.1156,
+      "robGain": 2.4812,
+      "ecoCost": 3.7881,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2934,
-      "ecoCost": 0.1216,
+      "robGain": 1000003.7315,
+      "ecoCost": 1.168,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.237,
-      "ecoCost": 0.1408,
+      "robGain": 1000003.6135,
+      "ecoCost": 1.5167,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0564,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.3049,
+      "ecoCost": 1.7993,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0871,
-      "ecoCost": 0.106,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.823,
+      "ecoCost": 0.8783,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1118,
-      "ecoCost": 0.112,
+      "robGain": 2.4158,
+      "ecoCost": 3.6981,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1279,
-      "ecoCost": 0.118,
+      "robGain": 2.6604,
+      "ecoCost": 3.3131,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0703,
-      "ecoCost": 0.124,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.4402,
+      "ecoCost": 1.7386,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0386,
-      "ecoCost": 0.13,
+      "robGain": 1000003.6987,
+      "ecoCost": 1.2506,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0764,
-      "ecoCost": 0.1492,
+      "robGain": 2.5547,
+      "ecoCost": 3.9512,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.038,
-      "ecoCost": 0.1552,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000004.212,
+      "ecoCost": 1.6452,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0634,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7369,
+      "ecoCost": 1.7177,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1079,
-      "ecoCost": 0.1012,
+      "robGain": 3.3335,
+      "ecoCost": 1.6637,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0675,
-      "ecoCost": 0.1204,
+      "robGain": 2.7515,
+      "ecoCost": 3.1873,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0341,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.8686,
+      "ecoCost": 0.7913,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0389,
-      "ecoCost": 0.1276,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4887,
+      "ecoCost": 1.866,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0379,
-      "ecoCost": 0.1288,
+      "robGain": 2.7364,
+      "ecoCost": 2.9857,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0433,
-      "ecoCost": 0.1348,
+      "robGain": 3.3271,
+      "ecoCost": 1.7595,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0898,
-      "ecoCost": 0.154,
+      "robGain": 1000003.6085,
+      "ecoCost": 1.0478,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0557,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
-    },
-    {
-      "robGain": 0.0813,
-      "ecoCost": 0.1012,
+      "robGain": 3.3826,
+      "ecoCost": 1.7801,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1031,
-      "ecoCost": 0.1204,
-      "ignite": 1,
-      "trueCritical": 1
+      "robGain": 2.706,
+      "ecoCost": 3.442,
+      "ignite": 0,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0369,
-      "ecoCost": 0.1396,
+      "robGain": 2.6487,
+      "ecoCost": 3.7278,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0873,
-      "ecoCost": 0.1456,
+      "robGain": 2.8417,
+      "ecoCost": 2.7518,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0417,
-      "ecoCost": 0.1648,
+      "robGain": 2.7329,
+      "ecoCost": 3.2238,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0704,
-      "ecoCost": 0.1708,
+      "robGain": 2.9342,
+      "ecoCost": 2.9349,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0865,
-      "ecoCost": 0.1768,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.4715,
+      "ecoCost": 1.8993,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1048,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7205,
+      "ecoCost": 0.799,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1055,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6172,
+      "ecoCost": 1.2589,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0583,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7212,
+      "ecoCost": 1.1862,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0592,
-      "ecoCost": 0.1084,
+      "robGain": 2.7125,
+      "ecoCost": 3.6581,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0448,
-      "ecoCost": 0.1096,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6657,
+      "ecoCost": 1.7031,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0448,
-      "ecoCost": 0.1156,
+      "robGain": 2.4175,
+      "ecoCost": 3.7711,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0763,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6041,
+      "ecoCost": 1.2927,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0429,
-      "ecoCost": 0.1276,
+      "robGain": 1000003.4522,
+      "ecoCost": 1.8608,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.052,
-      "ecoCost": 0.1,
+      "robGain": 2.641,
+      "ecoCost": 3.8217,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0546,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6703,
+      "ecoCost": 1.6208,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0701,
-      "ecoCost": 0.1024,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000004.2259,
+      "ecoCost": 1.7005,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0482,
-      "ecoCost": 0.1084,
+      "robGain": 1000003.4072,
+      "ecoCost": 2.5222,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0947,
-      "ecoCost": 0.1276,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 2.8433,
+      "ecoCost": 2.7481,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0524,
-      "ecoCost": 0.1288,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 2.8965,
+      "ecoCost": 2.8604,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0507,
-      "ecoCost": 0.1348,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5029,
+      "ecoCost": 1.6712,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0621,
-      "ecoCost": 0.136,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.3158,
+      "ecoCost": 2.2454,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0505,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.1909,
+      "ecoCost": 2.7534,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0563,
-      "ecoCost": 0.106,
+      "robGain": 2.69,
+      "ecoCost": 3.2424,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0909,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.8496,
+      "ecoCost": 0.8241,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0401,
-      "ecoCost": 0.1084,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5849,
+      "ecoCost": 1.4986,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0525,
-      "ecoCost": 0.1096,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6539,
+      "ecoCost": 1.5756,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0599,
-      "ecoCost": 0.1156,
+      "robGain": 2.4949,
+      "ecoCost": 4.3816,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.065,
-      "ecoCost": 0.1168,
+      "robGain": 2.7143,
+      "ecoCost": 3.9804,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0429,
-      "ecoCost": 0.118,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5435,
+      "ecoCost": 2.2963,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.8115,
+      "ecoCost": 1.936,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0699,
-      "ecoCost": 0.1,
+      "robGain": 3.0316,
+      "ecoCost": 3.8275,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0825,
-      "ecoCost": 0.1012,
+      "robGain": 4.8388,
+      "ecoCost": 3.9698,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 1.8
     },
     {
-      "robGain": 0.0353,
-      "ecoCost": 0.1204,
+      "robGain": 2.7715,
+      "ecoCost": 2.9893,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0562,
-      "ecoCost": 0.1264,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.473,
+      "ecoCost": 1.5889,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0476,
-      "ecoCost": 0.1276,
+      "robGain": 2.8625,
+      "ecoCost": 3.1759,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0544,
-      "ecoCost": 0.1288,
+      "robGain": 2.6288,
+      "ecoCost": 3.3784,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0604,
-      "ecoCost": 0.13,
+      "robGain": 2.6997,
+      "ecoCost": 3.3073,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1576,
-      "ecoCost": 0.1312,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6352,
+      "ecoCost": 1.3869,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1303,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.3685,
+      "ecoCost": 2.1378,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.12,
-      "ecoCost": 0.1012,
+      "robGain": 2.9763,
+      "ecoCost": 3.2399,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1108,
-      "ecoCost": 0.1024,
+      "robGain": 2.562,
+      "ecoCost": 4.319,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1344,
-      "ecoCost": 0.1036,
+      "robGain": 3.2638,
+      "ecoCost": 2.8457,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0506,
-      "ecoCost": 0.1228,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.4805,
+      "ecoCost": 1.337,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0704,
-      "ecoCost": 0.1288,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6541,
+      "ecoCost": 1.1816,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0937,
-      "ecoCost": 0.13,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.3767,
+      "ecoCost": 1.8845,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1446,
-      "ecoCost": 0.1312,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4827,
+      "ecoCost": 1.8794,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1408,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5224,
+      "ecoCost": 1.2392,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1395,
-      "ecoCost": 0.1012,
+      "robGain": 2.6321,
+      "ecoCost": 3.376,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1242,
-      "ecoCost": 0.1024,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5083,
+      "ecoCost": 1.5873,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0647,
-      "ecoCost": 0.1036,
+      "robGain": 1000003.4162,
+      "ecoCost": 1.6336,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0708,
-      "ecoCost": 0.1228,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 2.8429,
+      "ecoCost": 2.7491,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1121,
-      "ecoCost": 0.124,
+      "robGain": 1000003.6351,
+      "ecoCost": 1.1472,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0964,
-      "ecoCost": 0.1432,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4535,
+      "ecoCost": 1.7811,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1628,
-      "ecoCost": 0.1444,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6768,
+      "ecoCost": 1.4432,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1221,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.2967,
+      "ecoCost": 2.5182,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1073,
-      "ecoCost": 0.1012,
+      "robGain": 2.5435,
+      "ecoCost": 3.5681,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1453,
-      "ecoCost": 0.1024,
+      "robGain": 1000003.4465,
+      "ecoCost": 1.6479,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0647,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6693,
+      "ecoCost": 1.3831,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0692,
-      "ecoCost": 0.1228,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.3368,
+      "ecoCost": 2.2803,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0976,
-      "ecoCost": 0.124,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5109,
+      "ecoCost": 2.0518,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0746,
-      "ecoCost": 0.13,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6106,
+      "ecoCost": 1.9888,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0914,
-      "ecoCost": 0.136,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6632,
+      "ecoCost": 0.931,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1407,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.496,
+      "ecoCost": 1.461,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7211,
+      "ecoCost": 1.1912,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1377,
-      "ecoCost": 0.106,
+      "robGain": 1000003.659,
+      "ecoCost": 1.5596,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.137,
-      "ecoCost": 0.1252,
+      "robGain": 3.4269,
+      "ecoCost": 4.3058,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.0914,
-      "ecoCost": 0.1264,
+      "robGain": 4.2504,
+      "ecoCost": 2.5622,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.0652,
-      "ecoCost": 0.1456,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4476,
+      "ecoCost": 2.5046,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5782,
+      "ecoCost": 1.1152,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0849,
-      "ecoCost": 0.1468,
+      "robGain": 2.7336,
+      "ecoCost": 3.2272,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1275,
-      "ecoCost": 0.148,
+      "robGain": 1000003.4967,
+      "ecoCost": 1.301,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1505,
-      "ecoCost": 0.1672,
+      "robGain": 1000003.5764,
+      "ecoCost": 1.3542,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1134,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000004.3677,
+      "ecoCost": 1.6824,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.2383,
-      "ecoCost": 0.1012,
+      "robGain": 1000004.1186,
+      "ecoCost": 1.7941,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0.63
     },
     {
-      "robGain": 0.1807,
-      "ecoCost": 0.1204,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000004.4923,
+      "ecoCost": 1.7942,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.1441,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6615,
+      "ecoCost": 1.7988,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0945,
-      "ecoCost": 0.1228,
+      "robGain": 2.5869,
+      "ecoCost": 4.3452,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0757,
-      "ecoCost": 0.124,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6201,
+      "ecoCost": 2.2076,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1645,
-      "ecoCost": 0.1252,
+      "robGain": 1000003.6668,
+      "ecoCost": 0.9951,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1032,
-      "ecoCost": 0.1444,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.1363,
+      "ecoCost": 2.4042,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1218,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.825,
+      "ecoCost": 1.1042,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.3443,
+      "ecoCost": 2.3309,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1286,
-      "ecoCost": 0.1012,
+      "robGain": 2.6778,
+      "ecoCost": 3.1159,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5619,
+      "ecoCost": 1.1658,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6249,
+      "ecoCost": 1.2561,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2349,
-      "ecoCost": 0.1024,
+      "robGain": 1000003.8551,
+      "ecoCost": 0.975,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.082,
-      "ecoCost": 0.1216,
+      "robGain": 1000003.5818,
+      "ecoCost": 1.8128,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5868,
+      "ecoCost": 1.0959,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2821,
+      "ecoCost": 2.0036,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6759,
+      "ecoCost": 1.3637,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.6834,
+      "ecoCost": 3.7995,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2508,
+      "ecoCost": 1.8428,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4707,
+      "ecoCost": 1.5845,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1308,
-      "ecoCost": 0.1228,
+      "robGain": 2.543,
+      "ecoCost": 3.8043,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1461,
-      "ecoCost": 0.124,
+      "robGain": 2.7635,
+      "ecoCost": 3.4007,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000005.4374,
+      "ecoCost": 1.7427,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0941,
-      "ecoCost": 0.13,
+      "robGain": 2.4967,
+      "ecoCost": 3.6721,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7135,
+      "ecoCost": 1.0544,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4521,
+      "ecoCost": 1.8657,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0922,
-      "ecoCost": 0.1312,
+      "robGain": 2.7749,
+      "ecoCost": 3.5291,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 4.0754,
+      "ecoCost": 2.7974,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
+    },
+    {
+      "robGain": 1000003.645,
+      "ecoCost": 1.9123,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.9,
+      "ecoCost": 0.4816,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1599,
-      "ecoCost": 0.1,
+      "robGain": 2.9017,
+      "ecoCost": 2.9305,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1435,
-      "ecoCost": 0.1012,
+      "robGain": 1000003.5712,
+      "ecoCost": 1.6011,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1544,
-      "ecoCost": 0.1204,
+      "robGain": 3.3593,
+      "ecoCost": 1.6783,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0989,
-      "ecoCost": 0.1396,
+      "robGain": 1000003.4283,
+      "ecoCost": 1.6114,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.2603,
-      "ecoCost": 0.1588,
+      "robGain": 1000004.335,
+      "ecoCost": 1.8269,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.2164,
-      "ecoCost": 0.178,
+      "robGain": 1000003.6593,
+      "ecoCost": 1.559,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1549,
-      "ecoCost": 0.1972,
+      "robGain": 1000003.4993,
+      "ecoCost": 2.0777,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1743,
-      "ecoCost": 0.2164,
+      "robGain": 1000003.518,
+      "ecoCost": 1.2536,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1581,
-      "ecoCost": 0.1,
+      "robGain": 1000003.6716,
+      "ecoCost": 1.0707,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1238,
-      "ecoCost": 0.1192,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5144,
+      "ecoCost": 1.6506,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1597,
-      "ecoCost": 0.1252,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.3497,
+      "ecoCost": 2.2468,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0804,
-      "ecoCost": 0.1312,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6007,
+      "ecoCost": 1.8474,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1042,
-      "ecoCost": 0.1372,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 3.3608,
+      "ecoCost": 2.611,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1002,
-      "ecoCost": 0.1432,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5987,
+      "ecoCost": 1.1464,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0822,
-      "ecoCost": 0.1444,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4418,
+      "ecoCost": 1.6535,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1766,
-      "ecoCost": 0.1456,
+      "robGain": 1000003.5464,
+      "ecoCost": 1.5794,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.111,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 4.2146,
+      "ecoCost": 2.3249,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
+    },
+    {
+      "robGain": 1000003.6925,
+      "ecoCost": 1.7156,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4643,
+      "ecoCost": 2.4531,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4977,
+      "ecoCost": 2.5371,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 4.224,
+      "ecoCost": 3.1535,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.1279,
-      "ecoCost": 0.106,
+      "robGain": 1000003.6385,
+      "ecoCost": 2.6132,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.5539,
+      "ecoCost": 5.1098,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1051,
-      "ecoCost": 0.112,
+      "robGain": 2.4866,
+      "ecoCost": 3.5409,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6598,
+      "ecoCost": 1.0201,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6757,
+      "ecoCost": 1.0713,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1846,
-      "ecoCost": 0.1132,
+      "robGain": 1000002.3195,
+      "ecoCost": 4.3201,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1943,
-      "ecoCost": 0.1324,
+      "robGain": 3.6152,
+      "ecoCost": 3.0713,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0.63
     },
     {
-      "robGain": 0.1253,
-      "ecoCost": 0.1516,
+      "robGain": 3.3707,
+      "ecoCost": 2.4451,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.113,
-      "ecoCost": 0.1708,
+      "robGain": 3.3269,
+      "ecoCost": 1.6784,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1433,
-      "ecoCost": 0.19,
+      "robGain": 1000003.7571,
+      "ecoCost": 0.9528,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0969,
-      "ecoCost": 0.1,
+      "robGain": 2.5832,
+      "ecoCost": 3.7917,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000004.4712,
+      "ecoCost": 1.6826,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
+    },
+    {
+      "robGain": 3.1895,
+      "ecoCost": 2.6892,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1094,
-      "ecoCost": 0.1012,
+      "robGain": 1000003.7196,
+      "ecoCost": 0.8776,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.405,
+      "ecoCost": 3.8071,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.0905,
-      "ecoCost": 0.1072,
+      "robGain": 1000003.6859,
+      "ecoCost": 1.2694,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.7666,
+      "ecoCost": 3.5427,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.074,
-      "ecoCost": 0.1084,
+      "robGain": 2.6563,
+      "ecoCost": 3.8742,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0789,
-      "ecoCost": 0.1096,
+      "robGain": 1000003.4513,
+      "ecoCost": 2.1939,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.083,
-      "ecoCost": 0.1288,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5819,
+      "ecoCost": 2.0622,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1067,
-      "ecoCost": 0.13,
+      "robGain": 3.5739,
+      "ecoCost": 3.0569,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1375,
-      "ecoCost": 0.1492,
+      "robGain": 2.4801,
+      "ecoCost": 4.8993,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.8927,
+      "ecoCost": 2.7302,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1132,
-      "ecoCost": 0.1,
+      "robGain": 2.5553,
+      "ecoCost": 3.4651,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1268,
-      "ecoCost": 0.106,
+      "robGain": 1000003.5937,
+      "ecoCost": 1.1719,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0656,
-      "ecoCost": 0.1252,
+      "robGain": 2.6605,
+      "ecoCost": 3.4808,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0633,
-      "ecoCost": 0.1312,
+      "robGain": 1000003.5845,
+      "ecoCost": 1.5139,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1244,
-      "ecoCost": 0.1504,
+      "robGain": 1000003.6966,
+      "ecoCost": 1.4953,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1216,
-      "ecoCost": 0.1696,
+      "robGain": 1000003.6193,
+      "ecoCost": 1.8974,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0671,
-      "ecoCost": 0.1888,
+      "robGain": 1000003.4958,
+      "ecoCost": 2.4023,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.5499,
+      "ecoCost": 3.4818,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1181,
-      "ecoCost": 0.1948,
+      "robGain": 3.2767,
+      "ecoCost": 2.0252,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0812,
-      "ecoCost": 0.1,
+      "robGain": 2.7164,
+      "ecoCost": 3.5006,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0452,
-      "ecoCost": 0.106,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7388,
+      "ecoCost": 1.387,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0369,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6413,
+      "ecoCost": 1.834,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0453,
-      "ecoCost": 0.1084,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5548,
+      "ecoCost": 2.1846,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0479,
-      "ecoCost": 0.1144,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 3.36,
+      "ecoCost": 2.8479,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.034,
-      "ecoCost": 0.1156,
+      "robGain": 2.7177,
+      "ecoCost": 4.5057,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0791,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6444,
+      "ecoCost": 2.5328,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0952,
-      "ecoCost": 0.1276,
+      "robGain": 1000003.7202,
+      "ecoCost": 0.9532,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0381,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6742,
+      "ecoCost": 1.2857,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0733,
-      "ecoCost": 0.1012,
+      "robGain": 2.6471,
+      "ecoCost": 3.7265,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0406,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5722,
+      "ecoCost": 1.8293,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0335,
-      "ecoCost": 0.1084,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5519,
+      "ecoCost": 1.2503,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0407,
-      "ecoCost": 0.1144,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.638,
+      "ecoCost": 1.2173,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0401,
-      "ecoCost": 0.1204,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 4.6293,
+      "ecoCost": 2.4652,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0406,
-      "ecoCost": 0.1264,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6739,
+      "ecoCost": 0.9073,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0391,
-      "ecoCost": 0.1324,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5996,
+      "ecoCost": 1.3029,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0702,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6216,
+      "ecoCost": 1.4124,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0719,
-      "ecoCost": 0.106,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5373,
+      "ecoCost": 1.8299,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0894,
-      "ecoCost": 0.112,
+      "robGain": 1000003.4993,
+      "ecoCost": 2.0729,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0354,
-      "ecoCost": 0.1312,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000005.1471,
+      "ecoCost": 1.7694,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 1.44
     },
     {
-      "robGain": 0.0496,
-      "ecoCost": 0.1324,
+      "robGain": 2.6231,
+      "ecoCost": 4.3367,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0698,
-      "ecoCost": 0.1336,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5332,
+      "ecoCost": 1.2152,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0462,
-      "ecoCost": 0.1396,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7876,
+      "ecoCost": 0.8802,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0636,
-      "ecoCost": 0.1408,
+      "robGain": 2.6857,
+      "ecoCost": 3.4872,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0652,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.8211,
+      "ecoCost": 1.1225,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.079,
-      "ecoCost": 0.106,
+      "robGain": 2.6357,
+      "ecoCost": 3.9152,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0743,
-      "ecoCost": 0.112,
+      "robGain": 2.7276,
+      "ecoCost": 3.8694,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0415,
-      "ecoCost": 0.1132,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6899,
+      "ecoCost": 1.0205,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0962,
-      "ecoCost": 0.1144,
+      "robGain": 2.4837,
+      "ecoCost": 3.8594,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0747,
-      "ecoCost": 0.1204,
+      "robGain": 1000003.7644,
+      "ecoCost": 1.1717,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0371,
-      "ecoCost": 0.1396,
+      "robGain": 2.6648,
+      "ecoCost": 3.8458,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0892,
-      "ecoCost": 0.1408,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6622,
+      "ecoCost": 0.9331,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0463,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000006.0526,
+      "ecoCost": 1.2768,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.079,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7664,
+      "ecoCost": 0.7736,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0994,
-      "ecoCost": 0.1024,
+      "robGain": 1000003.6132,
+      "ecoCost": 1.2005,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0403,
-      "ecoCost": 0.1216,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6609,
+      "ecoCost": 1.3249,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0388,
-      "ecoCost": 0.1276,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.5751,
+      "ecoCost": 1.6739,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0668,
-      "ecoCost": 0.1288,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.5571,
+      "ecoCost": 1.8003,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0672,
-      "ecoCost": 0.1348,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000004.9455,
+      "ecoCost": 2.1456,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 1.44
     },
     {
-      "robGain": 0.037,
-      "ecoCost": 0.1408,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.6525,
+      "ecoCost": 1.9772,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0763,
-      "ecoCost": 0.1,
+      "robGain": 2.7903,
+      "ecoCost": 2.866,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0617,
-      "ecoCost": 0.1012,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 2.8557,
+      "ecoCost": 2.8071,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0544,
-      "ecoCost": 0.1072,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.4727,
+      "ecoCost": 1.5943,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5247,
+      "ecoCost": 1.7092,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0384,
-      "ecoCost": 0.1132,
+      "robGain": 2.8368,
+      "ecoCost": 3.4684,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1037,
-      "ecoCost": 0.1144,
+      "robGain": 1000003.6176,
+      "ecoCost": 1.8915,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0728,
-      "ecoCost": 0.1336,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 1000003.6398,
+      "ecoCost": 2.0727,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0541,
-      "ecoCost": 0.1396,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4418,
+      "ecoCost": 2.6711,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0605,
-      "ecoCost": 0.1408,
+      "robGain": 2.6376,
+      "ecoCost": 4.6165,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1076,
-      "ecoCost": 0.1,
-      "ignite": 0,
-      "trueCritical": 1
+      "robGain": 2000003.5824,
+      "ecoCost": 2.5313,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0466,
-      "ecoCost": 0.106,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000006.7217,
+      "ecoCost": 2.6725,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.036,
-      "ecoCost": 0.1072,
+      "robGain": 2.6648,
+      "ecoCost": 5.4789,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 5.2898,
+      "ecoCost": 3.5539,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4179,
+      "ecoCost": 1.4712,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2251,
+      "ecoCost": 2.0581,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4755,
+      "ecoCost": 1.5881,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6001,
+      "ecoCost": 1.4697,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000004.1421,
+      "ecoCost": 1.7122,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000004.1384,
+      "ecoCost": 1.7591,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5477,
+      "ecoCost": 1.183,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4392,
+      "ecoCost": 1.5824,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4341,
+      "ecoCost": 1.8241,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5634,
+      "ecoCost": 1.6951,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0462,
-      "ecoCost": 0.1084,
+      "robGain": 2.6912,
+      "ecoCost": 3.7919,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.646,
+      "ecoCost": 0.974,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6074,
+      "ecoCost": 1.2902,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.3629,
+      "ecoCost": 2.0641,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4766,
+      "ecoCost": 1.9697,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4465,
+      "ecoCost": 2.195,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0681,
-      "ecoCost": 0.1096,
+      "robGain": 3.0974,
+      "ecoCost": 3.2012,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.088,
-      "ecoCost": 0.1156,
+      "robGain": 3.0277,
+      "ecoCost": 3.3704,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0977,
-      "ecoCost": 0.1216,
+      "robGain": 5.767,
+      "ecoCost": 3.1835,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.077,
-      "ecoCost": 0.1408,
+      "robGain": 2.7205,
+      "ecoCost": 3.1747,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0809,
-      "ecoCost": 0.1,
+      "robGain": 2.6182,
+      "ecoCost": 3.6373,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5423,
+      "ecoCost": 1.7421,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.037,
-      "ecoCost": 0.106,
+      "robGain": 2.5369,
+      "ecoCost": 4.1347,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0372,
-      "ecoCost": 0.1072,
+      "robGain": 2.9969,
+      "ecoCost": 3.2709,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0951,
-      "ecoCost": 0.1132,
+      "robGain": 3.3605,
+      "ecoCost": 1.7524,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0445,
-      "ecoCost": 0.1324,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.7375,
+      "ecoCost": 1.0732,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0842,
-      "ecoCost": 0.1336,
+      "robGain": 2.6774,
+      "ecoCost": 3.5873,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2062,
+      "ecoCost": 2.4985,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0503,
-      "ecoCost": 0.1396,
+      "robGain": 2.5333,
+      "ecoCost": 3.5187,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6575,
+      "ecoCost": 1.1069,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5185,
+      "ecoCost": 1.6462,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2909,
+      "ecoCost": 1.9072,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5679,
+      "ecoCost": 1.378,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7877,
+      "ecoCost": 1.1199,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0897,
-      "ecoCost": 0.1408,
+      "robGain": 1000003.5961,
+      "ecoCost": 1.2289,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.61,
+      "ecoCost": 3.5787,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0979,
-      "ecoCost": 0.1,
+      "robGain": 2.8105,
+      "ecoCost": 3.2915,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0732,
-      "ecoCost": 0.1012,
+      "robGain": 2.6315,
+      "ecoCost": 3.7757,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000004.641,
+      "ecoCost": 1.4685,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.9
+    },
+    {
+      "robGain": 3.3197,
+      "ecoCost": 2.6353,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5234,
+      "ecoCost": 1.3904,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5377,
+      "ecoCost": 1.4451,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0389,
-      "ecoCost": 0.1024,
+      "robGain": 3.2653,
+      "ecoCost": 2.2088,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6089,
+      "ecoCost": 1.2004,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6299,
+      "ecoCost": 1.3122,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.4218,
+      "ecoCost": 4.2273,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.036,
-      "ecoCost": 0.1036,
+      "robGain": 2.634,
+      "ecoCost": 3.2901,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4791,
+      "ecoCost": 1.4986,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.3787,
+      "ecoCost": 1.9522,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6438,
+      "ecoCost": 1.5932,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6014,
+      "ecoCost": 1.9179,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2489,
+      "ecoCost": 2.7877,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6935,
+      "ecoCost": 0.8589,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0499,
-      "ecoCost": 0.1048,
+      "robGain": 1000003.557,
+      "ecoCost": 1.3206,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.6615,
+      "ecoCost": 3.4689,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6253,
+      "ecoCost": 1.4137,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0634,
-      "ecoCost": 0.1108,
+      "robGain": 2.7534,
+      "ecoCost": 3.5816,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5389,
+      "ecoCost": 1.9944,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7606,
+      "ecoCost": 0.7098,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0969,
-      "ecoCost": 0.112,
+      "robGain": 1000003.7219,
+      "ecoCost": 0.9542,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0505,
-      "ecoCost": 0.1312,
+      "robGain": 1000003.6469,
+      "ecoCost": 1.4281,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5295,
+      "ecoCost": 1.2233,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.7221,
+      "ecoCost": 3.248,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6128,
+      "ecoCost": 1.3551,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2009,
+      "ecoCost": 2.4289,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.684,
+      "ecoCost": 1.5856,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0859,
-      "ecoCost": 0.1,
+      "robGain": 2.7355,
+      "ecoCost": 3.9238,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0272,
-      "ecoCost": 0.106,
+      "robGain": 2.4314,
+      "ecoCost": 3.8172,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.1024,
-      "ecoCost": 0.1072,
+      "robGain": 1000004.3869,
+      "ecoCost": 1.5581,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0.9
     },
     {
-      "robGain": 0.0448,
-      "ecoCost": 0.1264,
-      "ignite": 0,
-      "trueCritical": 0
+      "robGain": 1000003.4386,
+      "ecoCost": 1.502,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7896,
+      "ecoCost": 0.8806,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6633,
+      "ecoCost": 1.3916,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.2,
+      "ecoCost": 2.6516,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.723,
+      "ecoCost": 0.7933,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5877,
+      "ecoCost": 1.2524,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.1262,
+      "ecoCost": 2.4363,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.0112,
+      "ecoCost": 2.9222,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.044,
-      "ecoCost": 0.1276,
+      "robGain": 1000003.6956,
+      "ecoCost": 1.5598,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4837,
+      "ecoCost": 2.189,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6146,
+      "ecoCost": 1.1878,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4207,
+      "ecoCost": 1.7819,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000004.2027,
+      "ecoCost": 1.6025,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0.63
+    },
+    {
+      "robGain": 1000004.0035,
+      "ecoCost": 1.9924,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4717,
+      "ecoCost": 1.3519,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.3244,
+      "ecoCost": 1.9096,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.6522,
+      "ecoCost": 3.5618,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7044,
+      "ecoCost": 1.3099,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4823,
+      "ecoCost": 2.0338,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.1285,
+      "ecoCost": 2.1144,
+      "ignite": 1,
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4771,
+      "ecoCost": 1.5701,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6449,
+      "ecoCost": 1.4277,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0836,
-      "ecoCost": 0.1288,
+      "robGain": 1000003.7274,
+      "ecoCost": 1.4028,
       "ignite": 1,
-      "trueCritical": 1
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.075,
-      "ecoCost": 0.148,
+      "robGain": 2.9186,
+      "ecoCost": 3.3586,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.9638,
+      "ecoCost": 2.4291,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5543,
+      "ecoCost": 1.3219,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5518,
+      "ecoCost": 1.5577,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4671,
+      "ecoCost": 1.9043,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6447,
+      "ecoCost": 1.7401,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0838,
-      "ecoCost": 0.154,
+      "robGain": 1000003.7601,
+      "ecoCost": 1.5701,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.4995,
+      "ecoCost": 1.3668,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.4806,
+      "ecoCost": 3.8662,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6602,
+      "ecoCost": 1.3312,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6925,
+      "ecoCost": 1.4898,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 3.4205,
+      "ecoCost": 2.2528,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0991,
-      "ecoCost": 0.1,
+      "robGain": 2.6098,
+      "ecoCost": 3.4208,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0949,
-      "ecoCost": 0.106,
+      "robGain": 1000003.5813,
+      "ecoCost": 1.4201,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 2.44,
+      "ecoCost": 4.1148,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0819,
-      "ecoCost": 0.1072,
+      "robGain": 2.651,
+      "ecoCost": 3.7323,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7216,
+      "ecoCost": 1.4397,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.7146,
+      "ecoCost": 1.6137,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.5414,
+      "ecoCost": 2.2288,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0475,
-      "ecoCost": 0.1132,
+      "robGain": 4.6685,
+      "ecoCost": 3.9547,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 1.8
+    },
+    {
+      "robGain": 2.8113,
+      "ecoCost": 2.901,
       "ignite": 0,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6267,
+      "ecoCost": 1.2474,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0299,
-      "ecoCost": 0.1144,
+      "robGain": 1000003.5526,
+      "ecoCost": 1.6423,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0842,
-      "ecoCost": 0.1336,
+      "robGain": 3.027,
+      "ecoCost": 2.9687,
       "ignite": 1,
-      "trueCritical": 0
+      "trueCritical": 0,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.0475,
-      "ecoCost": 0.1528,
+      "robGain": 2.843,
+      "ecoCost": 3.6082,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.6349,
+      "ecoCost": 1.1428,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     },
     {
-      "robGain": 0.091,
-      "ecoCost": 0.1588,
+      "robGain": 2.5189,
+      "ecoCost": 3.8532,
       "ignite": 0,
-      "trueCritical": 1
+      "trueCritical": 0,
+      "clusterPremium": 0
+    },
+    {
+      "robGain": 1000003.693,
+      "ecoCost": 1.3304,
+      "ignite": 1,
+      "trueCritical": 1,
+      "clusterPremium": 0
     }
   ],
-  "shiftBars": {
-    "note": "exp_shift.mjs, seeds=30, L=16, episodes=50; 突变后半段决策准确率(深思↔真关键对齐); conscious 用 plan.ignite",
-    "arms": [
-      {
-        "name": "static-skill",
-        "mean": 52.4,
-        "std": 5.1
-      },
-      {
-        "name": "router-frozen",
-        "mean": 55.6,
-        "std": 9
-      },
-      {
-        "name": "router-online",
-        "mean": 57.3,
-        "std": 3.4
-      },
-      {
-        "name": "conscious",
-        "mean": 59.8,
-        "std": 3.3
-      }
-    ],
-    "significance": "conscious vs router-online: Δ=2.5pt, p=4.9e-7, d=0.93, 胜率80%"
-  }
+  "noiseSweep": [
+    {
+      "noise": 0.1,
+      "missDelta": -0.38,
+      "p": 0.0098,
+      "winRate": 29,
+      "s2Ratio": 1.2,
+      "M1pass": true,
+      "M2pass": true
+    },
+    {
+      "noise": 0.2,
+      "missDelta": -1.21,
+      "p": 0.0003,
+      "winRate": 58,
+      "s2Ratio": 1.3,
+      "M1pass": true,
+      "M2pass": true
+    },
+    {
+      "noise": 0.3,
+      "missDelta": -1.71,
+      "p": 0.0002,
+      "winRate": 75,
+      "s2Ratio": 1.3,
+      "M1pass": true,
+      "M2pass": true
+    },
+    {
+      "noise": 0.42,
+      "missDelta": -3,
+      "p": 0.0002,
+      "winRate": 88,
+      "s2Ratio": 1.2,
+      "M1pass": true,
+      "M2pass": true
+    },
+    {
+      "noise": 0.5,
+      "missDelta": -3.33,
+      "p": 0,
+      "winRate": 96,
+      "s2Ratio": 1.1,
+      "M1pass": true,
+      "M2pass": true
+    }
+  ]
 }

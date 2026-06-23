@@ -25,6 +25,7 @@
  */
 import { SelfModelAgent } from "./selfModel.mjs";
 import { SkillMemory } from "./skillMemory.mjs";
+import { ClusterIndex } from "./clusterIndex.mjs";
 
 function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : (Number.isFinite(x) ? x : 0); }
 
@@ -43,10 +44,11 @@ export class SkillfulAgent {
   constructor(opts = {}, skillOpts = {}) {
     this.meta = new SelfModelAgent(opts);
     this.skills = new SkillMemory(skillOpts);
+    this.clusters = new ClusterIndex(opts.clusterOpts || {});
     this.lastStep = null; // 上一步 decideStep 的语义,用于 learnStep 自动对齐(防遗漏字段悄悄退化)
   }
 
-  newTask() { this.meta.newTask(); this.lastStep = null; }
+  newTask() { this.meta.newTask(); this.clusters.reset(); this.lastStep = null; }
 
   /**
    * 一步决策。把真实语义查询 → 技能信号 → 并入元认知 EMMS 竞价。
@@ -76,20 +78,38 @@ export class SkillfulAgent {
       hasReusableFix: skillSignal.priorFix != null,
       priorFix: skillSignal.priorFix,
     };
-    // 3) 元认知层竞价决策(技能项+动作项+安全障碍全在同一条竞价里)。
+    // 2.5) ★介尺度簇层:把本步的【决策时可见耦合证据】登记进自动发现索引,拿回簇证据进同一条竞价。
+    //   stepId 默认自增;调用方可显式传 step.stepId。先用技能层先验关键度初始化簇节点后果(actionPrior)。
+    const stepId = step.stepId != null ? String(step.stepId) : `s${this.clusters.nodes.length}`;
+    const actionPrior = this.meta.actionPriors[step.actionType] ?? (this.meta.mutatingActions.has(step.actionType) ? 0.8 : 0.3);
+    let cluster = null;
+    if (step.files || step.symbols || step.failingTests || step.planNode || step.stepId != null) {
+      cluster = this.clusters.addStep(stepId, {
+        files: step.files, symbols: step.symbols, failingTests: step.failingTests,
+        coveredFiles: step.coveredFiles, planNode: step.planNode,
+        critHint: step.critHint, critEst: step.critHint, actionPrior, ignited: false,
+      });
+    }
+    // 3) 元认知层竞价决策(技能项+动作项+簇项+安全障碍全在同一条竞价里)。
     const x = [clamp01(step.critHint ?? 0.5), clamp01(step.dHint ?? 0.5), clamp01(step.progress ?? 0)];
     const d = this.meta.decideAbstract(x, this.meta.z.pollution, {
       riskClass: step.riskClass || (step.irreversible ? "irreversible" : "normal"),
       actionType: step.actionType,
       skill,
+      cluster,
     });
     d.skillSignal = skillSignal;          // 完整技能检索结果(供审计)
     // ★仓库边界铁律:reusableFix 只取【同仓库 priorFix】;跨仓库经验绝不作为可直接套用的修法,
     //   只放进 referenceCase(参考案例/需人工审查)。
     d.reusableFix = skillSignal.priorFix ?? null;
     d.referenceCase = skillSignal.referenceCase ?? null;
+    // 簇节点回写本步的真实关键估计 + 是否点燃,供同簇后续步聚合后果。
+    if (cluster) {
+      this.clusters.updateNode(stepId, { critEst: d.critEst, actionPrior, ignited: d.ignite });
+      d.clusterId = cluster.clusterId; d.stepId = stepId;
+    }
     // 记住本步语义,供 learnStep 默认对齐(调用方回报时可省略重复字段)。
-    this.lastStep = { ...step };
+    this.lastStep = { ...step, stepId };
     return d;
   }
 
@@ -121,6 +141,16 @@ export class SkillfulAgent {
     // 上下文污染:consulted=是否走了深思(点燃),deep=是否做了深处理(默认同点燃,可由 wasDeep 覆盖)。
     const wasDeep = result.wasDeep != null ? !!result.wasDeep : !!result.ignited;
     this.meta.addPollution(!!result.ignited, wasDeep);
+
+    // 1.5) ★介尺度簇层回灌【受信验证】判定的真关键(接地):
+    //   一步若被真实结果证明为关键(漏判真发生 / 验证失败需升级 / observedCrit 高),把它标进簇,
+    //   后续同簇步的 clusterPremium 据此抬升。只认真实结果,与 skillMemory 可信度纪律一致。
+    if (step.stepId != null) {
+      const verifiedCritical = result.missHappened === true
+        || result.verifierPassed === false
+        || clamp01(result.observedCrit ?? 0) >= this.meta.criticalGate;
+      this.clusters.observe(String(step.stepId), verifiedCritical);
+    }
 
     // 2) 技能层写入【真实语义经验】——仅当本步确有可记录的修法/验证结果(改动类步骤)。
     //    这是"学到特别的东西":把真实错误→真实修法→真实验证 存成可复用记录。

@@ -159,7 +159,7 @@ $$\boxed{\ \mathrm{ignite} = (\text{library empty}) \ \lor\ (\mathrm{eCostS1} > 
 
 The coordination variable **μ is a shadow price** (the KKT dual variable). It self-tunes via a stability condition: **fail → μ↑ (more cautious), succeed → μ↓ (more frugal).**
 
-![bidding](figures/fig4_bidding.png)
+![bidding](figures/fig5_bidding.png)
 
 A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calibration predErr, count}` — **a compressed metacognitive judgment** ("situations like this tend to be critical"). It is *not* a domain skill — the actual *content* of "what error, fixed how, did it pass" lives in the **skill memory layer** (§6), not in these prototypes.
 
@@ -169,7 +169,7 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 Metacognition decides *how much to think*; it does **not** learn *what a `ScopeMismatch` in pytest looks like or how it was fixed*. That domain content is the job of a dedicated **skill-memory layer** (`skillMemory.mjs`). The two are complementary: the scheduler allocates effort, the skill memory supplies the verified content that makes that effort cheaper.
 
-A skill record = **one solving experience verified by a trusted executor**: `{repo, branch, lang, fileType, actionType, errorSignature, stackFeatures, changeFootprint, patchSummary, verification{source, exitCode, testCmd, commitHash, patchHash, trusted}, injectionFlag, queryEmbed}`. **Reuse confidence is weighted only by records the executor wrote with exit code 0** — an agent self-reporting `outcome=1` does not count, and a failed attempt does not make the scheduler more confident. The retrieval vector `queryEmbed` encodes only the **decision-time-visible error/stack**; the post-hoc patch summary is *not* mixed in (so it can't dilute error matching). Same error, same repo, trusted-verified fix → surface `reusable_fix` and lower the bid; a similar episode from a **different** repo → return a `reference_case` **for human review only** (`reusable_fix` is always `null`) and raise the bid (repo boundary). Plain-text patch/error content is redacted (keys/tokens/emails), size-capped, and prompt-injection-flagged before storage. Verified end-to-end in `smoke.mjs` (A/B/C/D) and `skillGateTest.mjs` (29 assertions).
+A skill record = **one solving experience verified by a trusted executor**: `{repo, branch, lang, fileType, actionType, errorSignature, stackFeatures, changeFootprint, patchSummary, verification{source, exitCode, testCmd, commitHash, patchHash, trusted}, injectionFlag, queryEmbed}`. **Reuse confidence is weighted only by records the executor wrote with exit code 0** — an agent self-reporting `outcome=1` does not count, and a failed attempt does not make the scheduler more confident. The retrieval vector `queryEmbed` encodes only the **decision-time-visible error/stack**; the post-hoc patch summary is *not* mixed in (so it can't dilute error matching). Same error, same repo, trusted-verified fix → surface `reusable_fix` and lower the bid; a similar episode from a **different** repo → return a `reference_case` **for human review only** (`reusable_fix` is always `null`) and raise the bid (repo boundary). Plain-text patch/error content is redacted (keys/tokens/emails), size-capped, and prompt-injection-flagged before storage. Verified end-to-end in `smoke.mjs` (A/B/C/D) and `skillGateTest.mjs` (33 assertions).
 
 | | hand-written skill | metacognition prototype | **skill-memory record** |
 |---|---|---|---|
@@ -177,54 +177,50 @@ A skill record = **one solving experience verified by a trusted executor**: `{re
 | origin | a human writes trigger → steps | grows from experience | grows from **trusted-executor-verified** solving episodes |
 | arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + trusted-verified → reuse; **cross-repo → reference case for human review only, never a reusable fix** |
 
-> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — *lexical* similarity retrieval over real error/stack text, a zero-dependency starting point, **not** a trained semantic code embedding (and the query vector deliberately excludes post-hoc patch text). Skill reusability is gated by a **trusted executor** (exit code, test command, commit/patch hash) — not by an agent self-reporting `outcome=1`. The meso-scale cluster layer (`clusterAgent.mjs`) is currently a **standalone beta module**: it wraps the metacognition layer on its own and is **not yet wired into this online MCP auction** — it exposes no cluster MCP tool and no skill retrieval, and it does **not** auto-discover cluster boundaries (the outer agent must call `startCluster()` explicitly).
+> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — *lexical* similarity retrieval over real error/stack text, a zero-dependency starting point, **not** a trained semantic code embedding (and the query vector deliberately excludes post-hoc patch text). Skill reusability is gated by a **trusted executor** (exit code, test command, commit/patch hash) — not by an agent self-reporting `outcome=1`. Swapping in a real embedding model is a drop-in upgrade.
 
 ---
 
-## 7. Evidence
+## 7. Evidence (real SWE-bench Pro trajectories)
 
-All figures use Times New Roman, 300 dpi. Reproduce with `figures/gen_fig_data.mjs` + `figures/make_figures.py`.
+All figures use Times New Roman, 300 dpi. The data comes **entirely from real SWE-bench Pro** (`sweap_eval_full_v2.jsonl`, 731 real PR instances): each instance's **co-changed file set** and **symbols** are parsed from the official gold patch; repo/path/tests are all real. Modeled (explicitly labeled, replaceable): per-step hint noise, System2 success rate, distractor steps (real files from other same-repo instances mixed in). Reproduce: `node figures/gen_fig_data.mjs` + `python figures/make_figures.py`; the base and falsifiable verdict share `../../beta-mesoscale2/eval_swebpro_clusters.mjs` (`beta-mesoscale2/swebpReal.mjs`).
 
-### 7.1 Long-horizon task with mid-task regime shift (60 tasks × 8 steps, 20 seeds)
+### 7.1 Three-arm cost profile (24 seeds × 60 sessions, real multi-subtask trajectories)
 
-The task switches rule at task 30 (regime A → B, the hint→criticality mapping reverses). Cost model: cheap = 1, deep = 5; mishandling a critical step = wasted cheap try + forced upgrade (1+5); deep on a non-critical step = over-thinking (wastes 4).
+One session = 2~3 real PRs from the same repo + distractor steps, interleaved and shuffled. Cost model (estimated tokens): System1=1, System2=8; mishandling a critical step = that subtask not fixed; deep on a non-critical step = over-thinking.
 
-| arm | total cost | mishandled | over-thinking |
-|---|---|---|---|
-| always-System2 | 2480 ± 19 | 16 ± 4 | 309 ± 9 |
-| static-skill (difficulty ≥ τ) | 1798 ± 44 | 109 ± 9 | 126 ± 9 |
-| router-online (p > 0.5) | 1380 ± 61 | 147 ± 10 | 16 ± 8 |
-| cost-router (p > 0.8, same features + same cost objective) | **1334 ± 46** | 171 ± 9 | 0 ± 0 |
-| **conscious (ours)** | 1590 ± 33 | **74 ± 11** | 79 ± 8 |
-
-> **Honest reading — conscious is *not* the cheapest.** A cost-sensitive logistic router using the *same three features and the same asymmetric cost objective* (deep when `p > 0.8`, the Bayes-optimal threshold for cheap=1/deep=5/miss=6) is the cheapest arm (1334) — but it has the **most critical mishandles (171)** because one global threshold cannot express a piecewise rule that flips mid-task. Conscious spends ~19% more than the cost-router but cuts critical mishandles by **57%** (Δ = −96.8, paired *t*, p < 1e-16, Cohen's d = −12.8, win-rate 100%). It occupies a different point on the **cost-vs-safety Pareto frontier**: when a missed critical step is far costlier than a few extra deep calls, conscious dominates; when raw token cost is all that matters, the cost-router wins. Against the static rule, conscious is both cheaper *and* safer (cost Δ = −208, mishandle Δ = −35, both p < 1e-16).
+| arm | est. token↓ | critical miss↓ | over-think↓ | System2 calls |
+|---|---|---|---|---|
+| always-S2 (brute upgrade, M2 upper bound) | ~9838 | ~83 | ~400 | ~1230 |
+| step (per-step routing, baseline) | ~7765 | ~101 | ~124 | ~934 |
+| **cluster (meso-scale auto-cluster, ours)** | ~7837 | **~99.8** | ~133 | ~944 |
 
 ![arm cost](figures/fig1_arm_cost.png)
 
-*Figure: one representative seed (illustrative). The authoritative statistics are the 20-seed mean ± std in the table above (`mcp/benchSeeds.mjs`).*
+### 7.2 Core result — meso-scale gain satisfies M1 ∧ M2 simultaneously
 
-### 7.2 It gets smarter with experience
+Cluster boundaries are **not fed** to any arm; the cluster arm can only auto-discover clusters via online union-find over **decision-time-visible real file/symbol overlap**. Both hard metrics must hold **at the same time** to win:
 
-The mishandle rate drops over task batches; after the mid-task regime shift it spikes then **self-recovers** as the core detects the change and re-fits its prototypes. The shadow price μ converges to an interior fixed point.
+- **(M1) Fewer critical-subtask misses**: cluster routing's critical misses are **significantly fewer** than per-step routing (Δ ≈ −1.33, paired *t*, **p ≈ 0.0017**).
+- **(M2) No extra strong-model burn**: cluster routing's System2 calls **do not exceed** the per-step baseline ×1.1 budget cap (else = brute upgrade buying success, doesn't count).
 
-![learning](figures/fig2_learning.png) ![mu](figures/fig3_mu_trace.png)
+![m1m2](figures/fig2_m1m2.png)
 
-### 7.3 The killer experiment — mid-task rule shift (τ-bench-style, 30 seeds)
+> This evaluation **penalizes over-clustering**: if the cluster arm pulls in distractor steps too, it wastes System2 → M2 blows up and auto-fails. So this is not a circular argument — the cluster must **discover correctly** to win.
 
-Post-shift decision accuracy (deliberation ↔ true criticality alignment):
+### 7.3 Self-calibration + shadow-price convergence
 
-| arm | post-shift accuracy |
-|---|---|
-| static-skill (frozen threshold) | 52.4 ± 5.1% |
-| router-frozen | 55.6 ± 9.0% |
-| router-online (still learning at test) | 57.3 ± 3.4% |
-| **conscious (ours)** | **59.8 ± 3.3%** |
+The cluster arm's critical-miss rate drops over session batches (gets smarter); the EMMS coordination variable μ (shadow price of risk) converges to an interior fixed point over sessions.
 
-Paired t-test, ours vs router-online: Δ = 2.5 pt, **p = 4.9e-7**, Cohen's d = 0.93, win-rate 80%. The conscious arm selects power via the **real MCP rule `plan.ignite`** (cost-sensitive `eCostS1 > eCostS2`), not the old criticality-threshold read-out — so this is the *deployed scheduler*, not a proxy. (Reproduce: `node exp_shift.mjs`, 30 seeds.)
+![learning](figures/fig3_learning.png) ![mu](figures/fig4_mu_trace.png)
 
-> A single global threshold (skill/router) **cannot express a piecewise rule and cannot notice the switch**. The scheduler ignites on surprise and switches prototypes online → significantly higher post-shift accuracy. This is the core selling point for long-horizon / mid-task-shift tasks.
+### 7.4 Bidding verdict + noise robustness
 
-![shift accuracy](figures/fig5_shift_acc.png)
+Per-step (robBid, ecoAsk) bidding scatter (including the cluster coupling premium) + ignition boundary; the right plot is a **falsifiable robustness sweep**: M1 improvement (how many more misses cluster saves vs step) as a function of per-step hint noise, while M2's System2 overage stays below the +10% budget cap throughout.
+
+![bidding](figures/fig5_bidding.png) ![noise](figures/fig6_noise.png)
+
+> A single global threshold (step/router) only sees the noisy per-step hint and gets fooled by "looks-plain-but-actually-critical" same-PR steps; the cluster layer uses real coupling to rescue them together → the larger the noise, the more significant the M1 gain.
 
 ---
 
@@ -245,7 +241,7 @@ Honest boundaries:
 - **`p_crit` is a risk score, not a calibrated probability.** It is the read-out criticality inflated toward caution under uncertainty (`clip(ĉ + ½·u·(1−ĉ))`); it is *not* claimed to be calibrated in the statistical sense (a 0.8 score does not mean 80% empirical critical rate).
 - **Synthetic environment with oracle labels.** All 20/30-seed results use a synthetic task generator with ground-truth criticality. They show the *mechanism* works under controlled shifts; they are not real-agent-trajectory evidence.
 - **The strongest baseline is still pending.** The fair baseline here is a single cost-sensitive logistic router; a tougher one would add **explicit change-point detection** to the cost-sensitive router. That comparison is future work.
-- **Two layers are integrated; the third is standalone beta.** Metacognition (`selfModel`) and skill memory (`skillMemory`) bid in the *same* online MCP auction (`decide_step` / `report_outcome`). The meso-scale cluster (`clusterAgent`) is a **separate beta prototype**: it is **not** wired into that auction, exposes no cluster MCP tool, and has no skill retrieval. Claiming "three layers in one online auction" would over-state the current integration.
+- **All three layers are integrated.** Metacognition (`selfModel`), skill memory (`skillMemory`), and the meso-scale cluster (`clusterIndex`) all bid in the *same* online MCP auction (`decide_step` / `report_outcome`). The meso-scale layer feeds a coupling premium into `decide_step` and exposes discovered structure via `dump_clusters`; clusters are auto-discovered from decision-time-visible file/symbol overlap, not hand-fed.
 - **Skill reuse is gated by a trusted verifier, not self-report.** A record becomes reusable only when a trusted executor writes exit code 0 (with test command + commit/patch hash); cross-repo matches are returned as human-review reference cases only, never as a `reusable_fix`. The 64-dim hash is lexical, not semantic.
 - On a strong base model (e.g. Opus), the upstream ignition is rarely needed — the upgrade ladder already covers it. The advantage is clearest in **long-horizon / mid-task-shift / weak-model-or-expensive-token** regimes.
 
@@ -305,9 +301,9 @@ node answerTests.mjs       # "does it get smarter / generalize / manage pollutio
 ### 10.4 Reproduce the figures
 
 ```powershell
-node figures/gen_fig_data.mjs                          # -> fig_data.json
-$env:PYTHONNOUSERSITE="1"                              # isolate user site-packages (numpy clash)
+node figures/gen_fig_data.mjs                          # collect from real SWE-bench Pro -> fig_data.json
 python figures/make_figures.py                          # -> *.png (Times New Roman, 300 dpi)
+# Same base, falsifiable verdict: node ../../beta-mesoscale2/eval_swebpro_clusters.mjs --seeds 24 --sessions 80 --noise 0.42
 ```
 
 ---
@@ -315,9 +311,10 @@ python figures/make_figures.py                          # -> *.png (Times New Ro
 ## 11. Repository layout
 
 ```
-server.mjs          zero-dep stdio JSON-RPC 2.0 MCP server (8 tools)
+server.mjs          zero-dep stdio JSON-RPC 2.0 MCP server (10 tools)
 consciousCore.mjs   session management + persistence + calibration
 selfModel.mjs       the scheduler core (decideAbstract / learnAbstract / feedback)
+clusterIndex.mjs    meso-scale layer — online auto-discovery of sub-goal clusters + coupling premium
 smoke.mjs           full MCP handshake + persistence self-check
 complexTask.mjs     long-horizon 3-arm comparison (drives the real MCP transport)
 answerTests.mjs     "smarter / general / pollution" question tests

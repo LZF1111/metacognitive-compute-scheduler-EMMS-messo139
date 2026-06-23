@@ -100,6 +100,11 @@ export class SelfModelAgent {
     this.skillReuseWeight = opts.skillReuseWeight ?? 0.4;
     this.skillNoveltyWeight = opts.skillNoveltyWeight ?? 0.3;
     this.crossRepoWeight = opts.crossRepoWeight ?? 0.5;
+    // ── ★介尺度簇层(子目标簇)信号进入同一 EMMS 竞价的权重(完整框架的第四个证据源)──
+    //   clusterWeight: 当前步属于一个【自动发现的、高后果且强耦合】子目标簇 → 抬 robBid(整簇倾向一起进浓相)。
+    //   语义: 一步单看 hint 平平,但同簇有受验证为真关键的步 / 高后果步 → 别被逐步噪声骗过去漏掉关键子任务。
+    //   与 actionPremium/skillNet 同构(障碍/影子价进竞价),由 μ 协调;不传 ctx.cluster → 该项=0(零回归)。
+    this.clusterWeight = opts.clusterWeight ?? 0.6;
     this.deepEwma = 0.5;
     this.canGrow = opts.canGrow ?? true;     // 能否自生原型（关掉=只能用已有=类 skill 库）
     this.canShift = opts.canShift ?? true;   // 能否中途切换活跃原型（关掉=锁死，模拟 skill 派发）
@@ -388,8 +393,21 @@ export class SelfModelAgent {
       crossRepoPremium = this.crossRepoWeight * crossRepo * stakes * this.missPenalty;
     }
     const skillNet = skillNoveltyPremium + crossRepoPremium - skillReuseDiscount; // 净技能竞价调制
+    // ── ★介尺度簇层竞价项: 当前步属于【自动发现的高后果+强耦合子目标簇】→ 稳健溢价(抬 robBid)──
+    //   cluster = {coupling, peerMaxStakes, peerVerifiedCritical, peerIgnited} 由 ClusterIndex.clusterEvidence 给出。
+    //   全部接地于【决策时可见的真实耦合信号】(文件/符号重叠、失败测试传播)+【受信验证】回灌的簇关键标定。
+    //   关键价值: 救回"簇真关键但本步 hint 偏低"的漏判 —— 但簇是自动发现的,不是手喂边界(修循环论证)。
+    const cluster = ctx.cluster || null;
+    let clusterPremium = 0;
+    if (cluster) {
+      const coupling = clamp01(cluster.coupling ?? 0);
+      // 簇后果 = 同簇其它步的最大后果;受信验证为真关键的簇直接拉满(接地,优先级最高)。
+      const peerStakes = cluster.peerVerifiedCritical ? 1 : clamp01(cluster.peerMaxStakes ?? 0);
+      // 溢价 ∝ 耦合强度 × 簇后果 × missPenalty;只有"既强耦合【又】高后果"的簇才付全额(避免对松散/低后果簇过度开火)。
+      clusterPremium = this.clusterWeight * coupling * peerStakes * this.missPenalty;
+    }
     const robBid = Math.max(0, robBase + barrierIrrev + barrierCrit + budgetShadow + windowPremium
-      + actionPremium + skillNet);
+      + actionPremium + skillNet + clusterPremium);
     // 裁决:库空(无图式可竞价)直接点燃;否则稳健出价 > 经济要价 ⟺ 点燃。
     const ignite = this.protos.length === 0 || robBid > ecoAsk;
     const mode = ignite ? "system2" : "system1";
@@ -404,6 +422,7 @@ export class SelfModelAgent {
     else if (isMutating && robBid > ecoAsk && robBase + budgetShadow <= ecoAsk) reason = "mutating-action-premium";
     else if (skillReuseDiscount > 0 && !ignite) reason = "skill-reuse-discount";
     else if ((skillNoveltyPremium > 0 || crossRepoPremium > 0) && ignite && robBase <= ecoAsk) reason = "skill-novelty/cross-repo-premium";
+    else if (clusterPremium > 0 && ignite && robBase + actionPremium + skillNet <= ecoAsk) reason = "cluster-coupling-premium";
     else reason = ignite ? "rob-bid>eco-ask" : "eco-ask>rob-bid";
     // 走便宜路(System1)且没挂验证器 → 从风险预算里扣这步的未验证风险上界。
     //   预算耗尽 = 累计未验证风险够多 → 影子价 budgetShadow 飙升压过经济要价。验证过的步不扣。
@@ -442,6 +461,8 @@ export class SelfModelAgent {
       // ★技能层(领域语义): 三个进竞价的技能项 + 可复用修法本体(供 agent 直接参考旧解)。
       skillReuseDiscount, skillNoveltyPremium, crossRepoPremium, skillNet,
       reusableFix: skill ? (skill.priorFix ?? null) : null,
+      // ★介尺度簇层: 簇耦合溢价(进同一条竞价) + 簇证据(供审计:簇是否高后果/受验证关键)。
+      clusterPremium, clusterEvidence: cluster || null,
     };
   }
 

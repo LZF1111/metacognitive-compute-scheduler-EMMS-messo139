@@ -179,6 +179,11 @@ function runArm(seed, mode) {
       const outcome = mode === "falsify" ? 0 : (usedS2 || !reallyCrit ? 1 : 0);
       const verifierResult = (st.actionType === "apply_patch" || st.actionType === "design_patch")
         ? (mode === "falsify" ? "test_failed" : (outcome ? "test_passed" : "test_failed")) : null;
+      // ★受信任执行器验证(P0 后:仅 source∈白名单 且 exitCode===0 的记录才可复用)。
+      //   skill 臂成功步给 executor+exit0(可信);falsify 臂给 exit1(不可信,验证全失败)。
+      const verification = (st.actionType === "apply_patch" || st.actionType === "design_patch")
+        ? { source: "executor", exitCode: mode === "falsify" ? 1 : (outcome ? 0 : 1), testCmd: "pytest -q" }
+        : null;
 
       if (mode === "noskill") {
         const x = [st.critHint, st.dHint, st.progress];
@@ -188,7 +193,7 @@ function runArm(seed, mode) {
         agent.learnStep(st, {
           observedCrit: st.trueCrit, ignited: d.ignite, verifierPassed, missHappened: mishandled,
           patchSummary: st.patchSummary, changeFootprint: { files: 1, hunks: 2, loc: 12 },
-          verifierResult, outcome,
+          verifierResult, outcome, verification,
         });
       }
     }

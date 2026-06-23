@@ -111,13 +111,15 @@ function cosine(a, b) {
 
 /**
  * 判定一条记录是否【受信任验证通过】。
- * 可信度只认【受信任执行器写入的 exitCode===0】,不认 agent 自报的 outcome/verifierResult。
- * 兼容:显式 verification.trusted===true 也认。
+ * ★安全铁律(P0 修复): 可信度只能由【服务端验证的来源 + 退出码】派生,绝不接受调用方自带的 trusted 标志。
+ *   旧实现 `if (v.trusted === true) return true` 是一个可伪造后门:
+ *   任何 MCP 客户端传 {source:"untrusted-client", exit_code:1, trusted:true} 就能把失败的修复
+ *   伪造成 prior_success=1 / verified_support=1,并让它作为 reusable_fix 外发,污染后续路由。
+ *   修复后: trusted 永远 = (source ∈ 白名单) ∧ (exitCode === 0),与客户端字段无关。
  */
 function trustedPass(rec, trustedSources) {
   const v = rec.verification;
   if (!v) return false;
-  if (v.trusted === true) return true;
   return trustedSources.includes(v.source) && v.exitCode === 0;
 }
 
@@ -154,7 +156,9 @@ export class SkillMemory {
     if (!v || typeof v !== "object") return { source: null, exitCode: null, testCmd: null, commitHash: null, patchHash: null, trusted: false };
     const source = v.source ?? null;
     const exitCode = (typeof v.exitCode === "number") ? v.exitCode : null;
-    const trusted = (this.trustedSources.includes(source) && exitCode === 0) || v.trusted === true;
+    // ★安全铁律(P0 修复): trusted 只由【服务端校验的来源 + 退出码】派生,【绝不】接受调用方自带的 v.trusted。
+    //   客户端传进来的 trusted 字段被显式丢弃,避免任意客户端把失败修复伪造成"已验证"污染路由。
+    const trusted = this.trustedSources.includes(source) && exitCode === 0;
     return {
       source,
       exitCode,

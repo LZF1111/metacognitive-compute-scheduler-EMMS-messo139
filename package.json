@@ -12,6 +12,8 @@
     "smoke": "node smoke.mjs",
     "complex": "node complexTask.mjs",
     "tests": "node answerTests.mjs",
+    "skill-gate": "node skillGateTest.mjs",
+    "eval": "node eval_swebpro_clusters.mjs --seeds 24 --sessions 60 --noise 0.3",
     "figdata": "node figures/gen_fig_data.mjs"
   },
   "keywords": [

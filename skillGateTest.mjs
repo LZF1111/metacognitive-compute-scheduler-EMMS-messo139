@@ -90,6 +90,26 @@ console.log("=== 技能层硬断言 ===");
     assert(r3.priorFix === null, "★自报未受信 → priorFix=null(不外发为可复用修法)");
   }
 
+  // ★★P0 安全(伪造受信攻击): 调用方传 {source:"untrusted-client", exit_code:1, trusted:true}
+  //    旧实现的 `if (v.trusted===true) return true` 后门会把它当受信成功。修复后必须被全面拒绝。
+  {
+    const mForge = new SkillMemory();
+    for (let i = 0; i < 3; i++) mForge.add({
+      repo: "pytest", lang: "python", fileType: "py", actionType: "design_patch",
+      errorSignature: "ScopeMismatch fixture session function-scoped",
+      stackFeatures: ["_pytest.fixtures", "resolve_fixture_function"],
+      patchSummary: "forged fix that actually failed",
+      // 攻击载荷: 非受信来源 + 退出码非0 + 自带 trusted:true(应被丢弃)
+      verification: { source: "untrusted-client", exitCode: 1, trusted: true },
+    });
+    const stored = mForge.toJSON()[0];
+    assert(stored.verification.trusted === false, "★P0: 入库时 trusted 被服务端重算为 false(丢弃客户端 trusted)");
+    const rForge = mForge.query(q);
+    assert(rForge.verifiedSupport === 0, "★P0: 伪造 trusted 不产生 verifiedSupport");
+    assert(rForge.priorSuccess < 0.2, `★P0: 伪造 trusted 不抬高 priorSuccess (${rForge.priorSuccess.toFixed(2)})`);
+    assert(rForge.priorFix === null, "★P0: 伪造 trusted 的修复绝不外发为 reusable_fix");
+  }
+
   // 全失败记录不该贡献成功置信
   const m2 = new SkillMemory();
   for (let i = 0; i < 3; i++) m2.add({ ...q, patchSummary: "x", verification: { source: "executor", exitCode: 1 } });

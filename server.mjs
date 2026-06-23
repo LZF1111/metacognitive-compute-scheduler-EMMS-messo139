@@ -57,9 +57,11 @@ const TOOLS = [
       "降算力(reusable_fix);陌生/跨仓库→抬算力(谨慎)。改动类动作(design_patch/apply_patch/...)不论风险估计多低都【强制验证】," +
       "且按动作类型分派验证策略(design_patch→review 评审; apply_patch/write_code/edit_file/refactor→test; " +
       "delete/migrate_schema→dry_run; run_test→none)。" +
-      "★不可逆步(部署/迁移/回滚/删除/改密钥)传 irreversible=true 或 risk_class=critical → 硬约束强制 System2+验证。" +
-      "返回 mode + risk_class + verify + remaining_risk_budget + 三层竞价分解(rob_bid/eco_ask + action_premium + " +
-      "skill_reuse_discount/skill_novelty_premium/cross_repo_premium + skill_signal + reusable_fix) + p_upper(保守上界,裁决用它)。",
+      "★不可逆步(部署/迁移/回滚/删除/改密钥)传 irreversible=true 或 risk_class=critical → 硬约束强制 System2+验证。" +      "返回 mode + risk_class + verify + remaining_risk_budget + 三层竞价分解(rob_bid/eco_ask + action_premium + " +
+      "skill_reuse_discount/skill_novelty_premium/cross_repo_premium + skill_signal + reusable_fix) + p_upper(保守上界,裁决用它)。" +
+      "★介尺度簇层(可选,传 files/symbols/failing_tests/plan_node 激活):从这些【决策时可见】信号【自动发现】子目标簇" +
+      "(文件/符号重叠 + 失败测试传播 + 计划父节点,在线 union-find),并把'本步属于一个高后果且强耦合的簇'作为 cluster_premium" +
+      "抬 rob_bid → 整簇倾向一起进 System2,救回'簇真关键但本步 hint 偏低'的漏判。簇是自动发现的,无需手动声明边界。返回 cluster_premium + cluster 证据。",
     inputSchema: {
       type: "object",
       properties: {
@@ -77,6 +79,12 @@ const TOOLS = [
         file_type: { type: "string", description: "文件类型(py/ts/md/yaml...)，参与技能检索相似度。" },
         error_signature: { type: "string", description: "★报错签名(异常类型/报错文本首行)。技能层据此检索同类错误的已验证修法。决策时可见(报错先于修复,无泄漏)。" },
         stack_features: { type: "array", items: { type: "string" }, description: "堆栈/符号特征 token 数组(函数名/文件名/异常类),提升技能检索精度。" },
+        step_id: { type: "string", description: "★介尺度簇层:本步唯一 id(不传则自增)。回报 report_outcome 时带同一 step_id → 真关键标定回灌该簇。" },
+        files: { type: "array", items: { type: "string" }, description: "★介尺度(决策时可见):本步触碰的文件路径。与其它步文件重叠高→自动归入同一子目标簇。" },
+        symbols: { type: "array", items: { type: "string" }, description: "★介尺度(决策时可见):本步触碰的符号(函数/类/import)。符号重叠高→自动连入同簇。" },
+        failing_tests: { type: "array", items: { type: "string" }, description: "★介尺度(决策时可见):当前已知失败的测试 id。失败测试把'该一起修的步'标定成一簇(失败传播,最强耦合信号)。" },
+        covered_files: { type: "array", items: { type: "string" }, description: "可选:当前失败测试覆盖到的源文件(若有覆盖率信息),增强失败传播连边精度。" },
+        plan_node: { type: "string", description: "可选:planner 给出的子任务 id。同一子任务的步自动归簇。" },
       },
       required: ["sessionId"],
     },
@@ -111,8 +119,7 @@ const TOOLS = [
         file_type: { type: "string", description: "可省略(默认沿用上一步)。" },
         error_signature: { type: "string", description: "可省略(默认沿用上一步)。" },
         stack_features: { type: "array", items: { type: "string" }, description: "可省略(默认沿用上一步)。" },
-        patch_summary: { type: "string", description: "★真实修法摘要(可复用 skill 本体)。改动类动作务必带回才能学到领域经验。会被脱敏+截断。" },
-        change_footprint: { type: "object", description: "改动面 {files,hunks,loc}。" },
+        patch_summary: { type: "string", description: "★真实修法摘要(可复用 skill 本体)。改动类动作务必带回才能学到领域经验。会被脱敏+截断。" },        change_footprint: { type: "object", description: "改动面 {files,hunks,loc}。" },
         verification: {
           type: "object",
           description: "★可信度来源:受信任测试执行器写入。{source:'executor', exit_code:0=通过, test_cmd, commit_hash, patch_hash}。仅受信源+exit_code===0 授予复用可信度。",
@@ -126,6 +133,7 @@ const TOOLS = [
         },
         verifier_result: { type: "string", description: "描述性标签:test_passed/test_failed/...(不单独授予可信度,看 verification)。" },
         outcome: { type: "number", description: "描述性标签:1 成功 / 0 失败(不单独授予可信度)。" },
+        step_id: { type: "string", description: "★介尺度:与 decide_step 同一 step_id。若本步被真实结果证明关键(miss_happened/verifier_passed=false/observed_criticality 高),回灌标定该子目标簇为真关键。" },
       },
       required: ["sessionId", "observed_criticality", "used_system2"],
     },
@@ -157,6 +165,11 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { sessionId: { type: "string" } }, required: ["sessionId"] },
   },
   {
+    name: "dump_clusters",
+    description: "★介尺度审计:导出当前任务【自动发现】的子目标簇(每簇的成员步 step_id + 规模 + 连边原因)。用于检查簇是不是从真实文件/符号/失败测试信号涌现出来的。",
+    inputSchema: { type: "object", properties: { sessionId: { type: "string" } }, required: ["sessionId"] },
+  },
+  {
     name: "close_session",
     description: "关闭会话并持久化技能。",
     inputSchema: { type: "object", properties: { sessionId: { type: "string" } }, required: ["sessionId"] },
@@ -185,9 +198,10 @@ function callTool(name, args = {}) {
       return core.calibration(args.sessionId);
     case "dump_prototypes":
       return core.dumpPrototypes(args.sessionId);
+    case "dump_clusters":
+      return core.dumpClusters(args.sessionId);
     case "close_session":
-      return core.closeSession(args.sessionId);
-    default:
+      return core.closeSession(args.sessionId);    default:
       throw new Error(`unknown tool "${name}"`);
   }
 }

@@ -127,6 +127,12 @@ export class ConsciousCore {
       errorSignature: obs.error_signature,
       stackFeatures: obs.stack_features,
       riskClass, irreversible: obs.irreversible,
+      // ★介尺度簇层(自动发现)的决策时可见耦合证据:文件/符号重叠 + 失败测试传播 + 计划父节点。
+      //   传了任一项即激活簇层;都不传 → 簇项=0(零回归,退化为微观逐步路由)。
+      stepId: obs.step_id,
+      files: obs.files, symbols: obs.symbols,
+      failingTests: obs.failing_tests, coveredFiles: obs.covered_files,
+      planNode: obs.plan_node,
     };
     const plan = agent.decideStep(step);
     const mode = plan.mode;
@@ -188,6 +194,18 @@ export class ConsciousCore {
         repo_match: +(plan.skillSignal.repoMatch ?? 0).toFixed(4),
         verified_support: plan.skillSignal.verifiedSupport ?? 0,
         best_sim: +(plan.skillSignal.bestSim ?? 0).toFixed(4),
+      } : null,
+      // ★介尺度簇层(自动发现子目标簇 → 同一条竞价里的耦合溢价):
+      //   cluster_premium 进了 rob_bid;cluster 是审计证据(簇 id/规模/耦合强度/同簇是否受验证关键)。
+      cluster_premium: plan.clusterPremium != null ? +plan.clusterPremium.toFixed(4) : null,
+      cluster: plan.clusterEvidence ? {
+        cluster_id: plan.clusterEvidence.clusterId,
+        size: plan.clusterEvidence.size,
+        coupling: plan.clusterEvidence.coupling,
+        peer_max_stakes: plan.clusterEvidence.peerMaxStakes,
+        peer_ignited: plan.clusterEvidence.peerIgnited,
+        peer_verified_critical: plan.clusterEvidence.peerVerifiedCritical,
+        edge_reasons: plan.clusterEvidence.edgeReasons,
       } : null,
       // 兼容旧图别名:rob_gain=rob_bid, eco_cost=eco_ask。
       rob_gain: plan.robBid != null ? +plan.robBid.toFixed(4) : null,
@@ -253,14 +271,15 @@ export class ConsciousCore {
       repo: outcome.repo, branch: outcome.branch, lang: outcome.lang, fileType: outcome.file_type,
       actionType: outcome.action_type,
       errorSignature: outcome.error_signature, stackFeatures: outcome.stack_features,
+      stepId: outcome.step_id,   // ★介尺度:回灌真关键标定到对应子目标簇(与 decide_step 同 step_id)
     };
     // result = 真实事后结果。★技能可信度来自【受信任执行器】写入的 verification
     //   {source,exit_code,test_cmd,commit_hash,patch_hash},不由 agent 自报 outcome=1 决定。
+    //   ★安全(P0):【绝不】透传客户端自带的 trusted 字段——可信度只能由 skillMemory 据 source+exitCode 服务端派生。
     const v = outcome.verification;
     const verification = v ? {
       source: v.source, exitCode: (typeof v.exit_code === "number" ? v.exit_code : v.exitCode),
       testCmd: v.test_cmd ?? v.testCmd, commitHash: v.commit_hash ?? v.commitHash, patchHash: v.patch_hash ?? v.patchHash,
-      trusted: v.trusted,
     } : undefined;
     const result = {
       observedCrit, ignited: usedS2,
@@ -333,5 +352,12 @@ export class ConsciousCore {
     const n = this.persist(sessionId);
     this.sessions.delete(sessionId);
     return { ok: true, persistedPrototypes: n };
+  }
+
+  /** 导出当前任务【自动发现】的子目标簇(成员步 + 规模 + 耦合),用于审计介尺度结构。 */
+  dumpClusters(sessionId) {
+    const { agent } = this._get(sessionId);
+    const clusters = agent.clusters ? agent.clusters.dump() : [];
+    return { nClusters: clusters.length, clusters };
   }
 }
