@@ -1,8 +1,18 @@
 # Metacognitive Compute Scheduler
 
-> An MCP (Model Context Protocol) service that decides **how much compute each step of an agent deserves** — cheap intuition (System 1) or expensive deliberation (System 2) — and learns that judgment from experience instead of hand-written rules.
+**Stop burning your best model on trivial steps — and stop letting your cheap model botch the one step that decides the whole task.**
 
-Zero-dependency Node.js (ESM). Works with any MCP client (Claude Desktop / Cursor / VS Code / your own agent loop).
+This is a tiny MCP service you ask one question per step — *System 1 (cheap) or System 2 (deliberate)?* — and it answers by **learning from outcomes**, not hand-written `if` rules. Bolt it onto any agent loop in five minutes.
+
+```jsonc
+// add to your MCP client (Claude Desktop / Cursor / VS Code), then call decide_step before each step
+{ "mcpServers": { "scheduler": { "command": "node", "args": ["/abs/path/to/server.mjs"] } } }
+```
+
+- 🪶 **Zero dependencies.** One `server.mjs`, Node ≥ 18, no build, no install, no API key. Works with any MCP client or your own loop.
+- 🎯 **Cuts critical mistakes 57%** vs. the strongest single-threshold router at comparable cost — and is both **cheaper and safer** than a static rule (20-seed benchmark, p < 1e-16, §7.1).
+- 🔁 **Survives mid-task rule changes.** When the task shifts under it, frozen thresholds keep misfiring; this one notices the surprise and re-adapts online (§7.3).
+- 🔍 **Fully auditable.** Every decision returns the exact numbers that drove it (`p_crit`, `e_cost_s1`, `e_cost_s2`, `mu`) — no black box.
 
 > 🌏 **中文版见 [`README.zh.md`](README.zh.md)** · Full Chinese algorithm write-up: [`ALGORITHM_zh.md`](ALGORITHM_zh.md)
 
@@ -10,28 +20,28 @@ Zero-dependency Node.js (ESM). Works with any MCP client (Claude Desktop / Curso
 
 ---
 
-## 1. What it is
+## 1. The problem it solves
 
-Every agent running a long-horizon task is implicitly answering, at every step:
+Every agent on a long task answers this at every step, whether it admits it or not:
 
-> *"Can I get away with a cheap model / single shot here, or must I stop and think hard (strong model / best-of-N / deep reasoning)?"*
+> *"Can I get away with a cheap/single shot here — or must I stop and think hard (strong model / best-of-N / deep reasoning)?"*
 
-Most frameworks do one of two bad things:
+Get it wrong in either direction and you lose:
 
-- **Always full power** — expensive, and it keeps polluting the context window.
-- **Hand-written skill triggers** (`if files > 12 then think_hard`) — they miss unforeseen cases and lock up when the task changes mid-flight.
+- **Always full power** → you pay strong-model price on steps that never needed it, *and* you flood the context window with deliberation that makes later steps worse.
+- **A hand-written trigger** (`if files > 12 then think_hard`) → it misses cases you didn't foresee and **locks up the moment the task changes mid-flight**.
 
-This project pulls that *"how much effort"* decision out into a **separate, learnable service**. It is **orthogonal** to *"what to do"*: keep your planner/skills, just ask this service one question per step — *System 1 or System 2?*
+The fix is to pull *"how much effort"* out into a **separate, learnable service**, orthogonal to *"what to do."* Keep your planner and skills exactly as they are — just ask one extra question per step.
 
-> **It is no longer just a scheduler — it is a three-layer framework.** Earlier versions overclaimed that three scalar prototypes would "grow into skills." They don't. The mature design separates concerns into three layers that all bid in **one** EMMS auction (§4.4):
->
-> | layer | learns | answers |
-> |---|---|---|
-> | **Metacognition** (`selfModel`) | when a step is worth deliberation | *how much compute does this step deserve?* |
-> | **Skill memory** (`skillMemory`) | domain experience grounded in **real verifier results** — *which error, in which repo, fixed how, did the test pass* | *have I solved this before, in this repo, and did it actually work?* |
-> | **Meso-scale cluster** (`clusterAgent`) | strongly-coupled steps as a sub-goal cluster | *should this whole sub-goal latch to deliberation instead of being misled per-step by noisy hints?* |
->
-> Metacognition allocates compute; skill memory holds content experience; verification anchors truth. None of them replaces the others.
+**Under the hood it's three cooperating layers, not one heuristic** (they all bid in a single auction, §4.4):
+
+| layer | what it learns | the question it answers |
+|---|---|---|
+| **Metacognition** (`selfModel`) | when a step is worth deliberating | *how much compute does this step deserve?* |
+| **Skill memory** (`skillMemory`) | domain experience grounded in **real verifier results** | *have I fixed this exact error in this repo before — and did the test actually pass?* |
+| **Meso-scale cluster** (`clusterAgent`) | strongly-coupled steps as one sub-goal | *should this whole sub-goal latch to deliberation instead of being fooled per-step by noisy hints?* |
+
+Metacognition allocates compute; skill memory supplies verified content; the meso-scale layer protects pivotal sub-goals. None replaces the others, and you can use just the first layer and ignore the rest.
 
 ---
 
@@ -192,9 +202,9 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 ---
 
-## 6. The skill-memory layer: learning domain experience (not replacing skills)
+## 6. The skill-memory layer: learning domain experience
 
-An earlier version of this README claimed the prototype library "replaces hand-written skills." That was an overclaim, and it is **retracted**. A metacognitive scheduler learns *how much to think* — it does **not** learn *what a `ScopeMismatch` in pytest looks like or how it was fixed*. That domain content lives in a dedicated **skill-memory layer** (`skillMemory.mjs`), and the two cooperate rather than one replacing the other.
+Metacognition decides *how much to think*; it does **not** learn *what a `ScopeMismatch` in pytest looks like or how it was fixed*. That domain content is the job of a dedicated **skill-memory layer** (`skillMemory.mjs`). The two are complementary: the scheduler allocates effort, the skill memory supplies the verified content that makes that effort cheaper.
 
 A skill record = **one solving experience that was actually verified**:
 
