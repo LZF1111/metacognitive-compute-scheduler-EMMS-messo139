@@ -183,44 +183,84 @@ A skill record = **one solving experience verified by a trusted executor**: `{re
 
 ## 7. Evidence (real SWE-bench Pro trajectories)
 
-All figures use Times New Roman, 300 dpi. The data comes **entirely from real SWE-bench Pro** (`sweap_eval_full_v2.jsonl`, 731 real PR instances): each instance's **co-changed file set** and **symbols** are parsed from the official gold patch; repo/path/tests are all real. Modeled (explicitly labeled, replaceable): per-step hint noise, System2 success rate, distractor steps (real files from other same-repo instances mixed in). Reproduce: `node figures/gen_fig_data.mjs` + `python figures/make_figures.py`; the base and falsifiable verdict share `../../beta-mesoscale2/eval_swebpro_clusters.mjs` (`beta-mesoscale2/swebpReal.mjs`).
+All figures use Times New Roman, 300 dpi. The data comes **entirely from real SWE-bench Pro** (`sweap_eval_full_v2.jsonl`, 731 real PR instances, shipped in `data/`): each instance's **co-changed file set** and **symbols** are parsed from the official gold patch; repo/path/tests are all real. Modeled (explicitly labeled, replaceable): per-step hint noise, System2 success rate, distractor steps (real files from other same-repo instances mixed in). End-to-end reproduce:
 
-### 7.1 Three-arm cost profile (24 seeds × 60 sessions, real multi-subtask trajectories)
+```bash
+node figures/gen_fig_data.mjs        # sample from real data -> figures/fig_data.json
+python figures/make_figures.py       # fig_data.json -> the 7 figures below
+node eval_swebpro_clusters.mjs --seeds 24 --sessions 60 --noise 0.3   # same numbers, PASS/FAIL verdict
+```
 
-One session = 2~3 real PRs from the same repo + distractor steps, interleaved and shuffled. Cost model (estimated tokens): System1=1, System2=8; mishandling a critical step = that subtask not fixed; deep on a non-critical step = over-thinking.
+Figures and verdict share one engine (`swebpReal.mjs`), so the pictures and the numbers can never disagree. Every number below is verbatim from the committed `figures/fig_data.json`.
 
-| arm | est. token↓ | critical miss↓ | over-think↓ | System2 calls |
+**The 10 real instances driving the headline** (`selected10.json`): element-web (6 files), qutebrowser (5), NodeBB (5), openlibrary (4), vuls (4), tutanota (5), flipt (3), webclients (3), ansible (2), teleport (2).
+
+### 7.1 Three-arm cost profile — `fig1_arm_cost.png`
+
+**What this figure is:** three scheduling strategies on the same 24-seed × 60-session batch. One session = 2~3 real PRs from the same repo + distractor steps, interleaved and shuffled. Cost model (estimated tokens): System1=1, System2=8; mishandling a critical step = that subtask not fixed; deep on a non-critical step = wasted over-thinking.
+
+| arm | est. tokens ↓ | critical miss ↓ | over-think ↓ | System2 calls |
 |---|---|---|---|---|
-| always-S2 (brute upgrade, M2 upper bound) | ~9838 | ~83 | ~400 | ~1230 |
-| step (per-step routing, baseline) | ~7765 | ~101 | ~124 | ~934 |
-| **cluster (meso-scale auto-cluster, ours)** | ~7837 | **~99.8** | ~133 | ~944 |
+| `always-S2` (brute upgrade = every step runs System2) | 9838 | 83.08 | 399.88 | 1229.75 |
+| `step` (per-step routing, baseline) | 7765.13 | 101.17 | 123.79 | 933.63 |
+| **`cluster` (meso-scale auto-cluster, ours)** | 7837.17 | **99.83** | 132.67 | 943.92 |
+
+**How to read it:** `always-S2` misses the fewest, but burns ~27% more tokens and 4× the over-thinking — that's the "think hard about everything" straw man. Our `cluster` arm hugs the cheap `step` baseline on cost (+0.9% tokens, +1.1% System2) yet recovers critical steps the baseline drops. The whole point is in the **next figure**: that small controlled overhead buys a safety gain.
 
 ![arm cost](figures/fig1_arm_cost.png)
 
-### 7.2 Core result — meso-scale gain satisfies M1 ∧ M2 simultaneously
+### 7.2 Core result — meso-scale gain satisfies M1 ∧ M2 simultaneously — `fig2_m1m2.png`
 
-Cluster boundaries are **not fed** to any arm; the cluster arm can only auto-discover clusters via online union-find over **decision-time-visible real file/symbol overlap**. Both hard metrics must hold **at the same time** to win:
+Cluster boundaries are **not fed** to any arm; the cluster arm can only auto-discover them via online union-find over **decision-time-visible real file/symbol overlap**. Both conditions must hold **at the same time** (147 critical subtasks per seed, paired across 24 seeds):
 
-- **(M1) Fewer critical-subtask misses**: cluster routing's critical misses are **significantly fewer** than per-step routing (Δ ≈ −1.33, paired *t*, **p ≈ 0.0017**).
-- **(M2) No extra strong-model burn**: cluster routing's System2 calls **do not exceed** the per-step baseline ×1.1 budget cap (else = brute upgrade buying success, doesn't count).
+| metric | meaning | value | verdict |
+|---|---|---|---|
+| **M1** critical-miss delta (cluster − step) | fewer critical subtasks missed? | **−1.33** (101.17 → 99.83), paired *t* = −3.14, **p = 0.0017**, cluster wins 58% of seeds | ✅ significantly fewer |
+| **M2** System2 delta (cluster − step) | cheating by upgrading more? | **+10.29 calls** (933.63 → 943.92), well under the +10% cap (≤ 1027) | ✅ no brute upgrade |
+
+**How to read it:** anything can win M1 by "upgrade everything to System2" — but that violates M2. Passing **both** is what proves the cluster layer found the *right* steps to deep-think, not simply *more* steps. A negative M1 with p < 0.01 is the headline: fewer critical subtasks slip through, at essentially baseline cost.
 
 ![m1m2](figures/fig2_m1m2.png)
 
-> This evaluation **penalizes over-clustering**: if the cluster arm pulls in distractor steps too, it wastes System2 → M2 blows up and auto-fails. So this is not a circular argument — the cluster must **discover correctly** to win.
+> This evaluation **penalizes over-clustering**: if the cluster arm pulls in distractor steps too, it wastes System2 → M2 breaks the budget cap and auto-fails. So the cluster must **discover correctly** to win — that's why M1 ∧ M2 holding together is not a circular argument.
 
-### 7.3 Self-calibration + shadow-price convergence
+### 7.3 Self-calibration + shadow-price convergence — `fig3_learning.png`, `fig4_mu_trace.png`
 
-The cluster arm's critical-miss rate drops over session batches (gets smarter); the EMMS coordination variable μ (shadow price of risk) converges to an interior fixed point over sessions.
+**`fig3_learning` (left) — cluster arm's critical-miss rate per session batch (120 sessions in 10 batches of 12):**
+
+| batch | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| miss rate | 6.5% | 5.7% | 6.9% | 2.3% | 9.3% | 8.2% | 7.8% | 7.1% | 7.7% | 8.5% |
+
+**How to read it (honest version):** the miss rate is **low and bounded from the first batch (~2–9%, mean ~7%)** — no long warm-up needed. The honest takeaway is that the gain is **stably maintaining a low miss rate** under noisy hints, **not** a dramatic downward learning curve (this series is noisy, not monotonically decreasing).
+
+**`fig4_mu_trace` (right) — EMMS coordination variable μ (shadow price of risk) over 120 sessions:** starts at **μ = 0.9** and converges to an interior fixed point at **μ = 0.3**. μ is the "exchange rate" coupling rob-bid and eco-ask; its convergence is what keeps the auction stable instead of oscillating between "all cheap" and "all deep".
 
 ![learning](figures/fig3_learning.png) ![mu](figures/fig4_mu_trace.png)
 
-### 7.4 Bidding verdict + noise robustness
+### 7.4 Bidding geometry + noise robustness — `fig5_bidding.png`, `fig6_noise.png`
 
-Per-step (robBid, ecoAsk) bidding scatter (including the cluster coupling premium) + ignition boundary; the right plot is a **falsifiable robustness sweep**: M1 improvement (how many more misses cluster saves vs step) as a function of per-step hint noise, while M2's System2 overage stays below the +10% budget cap throughout.
+**`fig5_bidding` (left) — each step plotted as a (rob-bid, eco-ask) scatter + ignition boundary.** Above the diagonal ignites System2, below stays System1. Truly-critical steps pushed to near-∞ rob-bid (the hard safety gate) always go deep; the cluster coupling premium pushes "coupled-but-looks-plain" steps over the line.
+
+**`fig6_noise` (right) — falsifiable robustness sweep:** how the M1 gain moves with per-step hint noise. M2 stays within budget at every noise level.
+
+| hint noise σ | M1 miss delta (cluster − step) | p | cluster win rate | System2 vs baseline | M1 | M2 |
+|---|---|---|---|---|---|---|
+| 0.1 | −0.38 | 0.0098 | 29% | 1.2× margin | ✅ | ✅ |
+| 0.2 | −1.21 | 0.0003 | 58% | 1.3× | ✅ | ✅ |
+| 0.3 | −1.71 | 0.0002 | 75% | 1.3× | ✅ | ✅ |
+| 0.42 | −3.00 | 0.0002 | 88% | 1.2× | ✅ | ✅ |
+| 0.5 | −3.33 | < 1e-4 | 96% | 1.1× | ✅ | ✅ |
+
+**How to read it:** the noisier the hints, the **larger** the cluster's edge (−0.38 → −3.33) and the more often it wins (29% → 96% of seeds). That's the mechanism's signature: a single global threshold gets fooled by "looks-plain-but-actually-critical" same-PR steps, and the cluster rescues them together via real coupling. When hints are clean (σ=0.1) there is little to rescue, so the gain is small — exactly as expected.
 
 ![bidding](figures/fig5_bidding.png) ![noise](figures/fig6_noise.png)
 
-> A single global threshold (step/router) only sees the noisy per-step hint and gets fooled by "looks-plain-but-actually-critical" same-PR steps; the cluster layer uses real coupling to rescue them together → the larger the noise, the more significant the M1 gain.
+### 7.5 Overview — `overview.png`
+
+A 2×3 composite of the six figures above for an at-a-glance read.
+
+![overview](figures/overview.png)
 
 ---
 
