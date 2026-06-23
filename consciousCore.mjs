@@ -122,7 +122,7 @@ export class ConsciousCore {
     //   决策时可见字段(报错先于修复,无泄漏);改动类动作按 actionVerifier 分派验证策略。
     const step = {
       critHint, dHint, progress,
-      repo: obs.repo, lang: obs.lang, fileType: obs.file_type,
+      repo: obs.repo, branch: obs.branch, lang: obs.lang, fileType: obs.file_type,
       actionType: obs.action_type,
       errorSignature: obs.error_signature,
       stackFeatures: obs.stack_features,
@@ -178,7 +178,10 @@ export class ConsciousCore {
       skill_reuse_discount: plan.skillReuseDiscount != null ? +plan.skillReuseDiscount.toFixed(4) : null,
       skill_novelty_premium: plan.skillNoveltyPremium != null ? +plan.skillNoveltyPremium.toFixed(4) : null,
       cross_repo_premium: plan.crossRepoPremium != null ? +plan.crossRepoPremium.toFixed(4) : null,
+      // ★仓库边界:reusable_fix 只在【同仓库+受信验证+强相似】时给;跨仓库一律 null。
       reusable_fix: plan.reusableFix ?? null,
+      // ★跨仓库只能给【参考案例】(需人工审查,不可直接套用),绝不作为 reusable_fix。
+      reference_case: plan.referenceCase ?? null,
       skill_signal: plan.skillSignal ? {
         novelty: +(plan.skillSignal.novelty ?? 0).toFixed(4),
         prior_success: +(plan.skillSignal.priorSuccess ?? 0).toFixed(4),
@@ -242,14 +245,23 @@ export class ConsciousCore {
       calib.pending = null;
     }
 
-    // step = 与 decide 同一情形/语义键(对齐原型签名 + 技能记录键)。
+    // step = 与 decide 同一情形/语义键。★调用方可只传【变化量】(结果/验证),语义键由
+    //   agent.learnStep 用上一步 decide 记住的 lastStep 自动对齐(防遗漏 action_type 等导致悄悄退化)。
+    //   仅当调用方显式传了某语义字段时才覆盖(用 undefined 表示\"不覆盖,沿用上一步\")。
     const step = {
       critHint, dHint, progress,
-      repo: outcome.repo, lang: outcome.lang, fileType: outcome.file_type,
+      repo: outcome.repo, branch: outcome.branch, lang: outcome.lang, fileType: outcome.file_type,
       actionType: outcome.action_type,
       errorSignature: outcome.error_signature, stackFeatures: outcome.stack_features,
     };
-    // result = 真实事后结果:验证器是否通过、是否漏判 + (改动类动作)真实修法摘要/改动面/验证标签/成败。
+    // result = 真实事后结果。★技能可信度来自【受信任执行器】写入的 verification
+    //   {source,exit_code,test_cmd,commit_hash,patch_hash},不由 agent 自报 outcome=1 决定。
+    const v = outcome.verification;
+    const verification = v ? {
+      source: v.source, exitCode: (typeof v.exit_code === "number" ? v.exit_code : v.exitCode),
+      testCmd: v.test_cmd ?? v.testCmd, commitHash: v.commit_hash ?? v.commitHash, patchHash: v.patch_hash ?? v.patchHash,
+      trusted: v.trusted,
+    } : undefined;
     const result = {
       observedCrit, ignited: usedS2,
       wasDeep: outcome.was_deep != null ? !!outcome.was_deep : usedS2,
@@ -257,12 +269,20 @@ export class ConsciousCore {
       missHappened: outcome.miss_happened != null ? !!outcome.miss_happened : undefined,
       patchSummary: outcome.patch_summary,
       changeFootprint: outcome.change_footprint,
+      verification,
       verifierResult: outcome.verifier_result,
       outcome: outcome.outcome,
     };
+    // 只传了变化量时,把 undefined 的语义键剔掉,让 learnStep 能用 lastStep 对齐。
+    const stepKeysGiven = (outcome.action_type !== undefined || outcome.repo !== undefined || outcome.error_signature !== undefined);
+    const alignedStep = stepKeysGiven ? step : {
+      critHint: outcome.criticality_hint !== undefined ? critHint : undefined,
+      dHint: outcome.difficulty_hint !== undefined ? dHint : undefined,
+      progress: outcome.progress !== undefined ? progress : undefined,
+    };
     // 三层学习(元认知 learnAbstract + 污染累计 + 技能库写真实经验,全在 learnStep 内)。
     const skillsBefore = agent.skills.size();
-    agent.learnStep(step, result);
+    agent.learnStep(alignedStep, result);
     const skillAdded = agent.skills.size() > skillsBefore;
     return {
       ok: true, nPrototypes: agent.meta.protos.length, nSkills: agent.skills.size(), skill_recorded: skillAdded,
@@ -299,11 +319,12 @@ export class ConsciousCore {
         situationCentroid: p.protoFeat.map((v) => +v.toFixed(3)),
         readoutWeights: p.w.map((v) => +v.toFixed(3)),
       })),
-      // ★技能库(领域经验):每条 = 真实错误→修法→验证结果(脱敏后可审计)。
+      // ★技能库(领域经验):每条 = 真实错误→修法→受信验证结果(脱敏后可审计)。
       skills: agent.skills.toJSON().map((r, i) => ({
-        id: i, repo: r.repo, lang: r.lang, fileType: r.fileType, actionType: r.actionType,
+        id: i, repo: r.repo, branch: r.branch, lang: r.lang, fileType: r.fileType, actionType: r.actionType,
         errorSignature: r.errorSignature, patchSummary: r.patchSummary,
-        verifierResult: r.verifierResult, outcome: r.outcome,
+        verification: r.verification, verifierResult: r.verifierResult, outcome: r.outcome,
+        injectionFlag: r.injectionFlag,
       })),
     };
   }

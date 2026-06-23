@@ -28,6 +28,13 @@ import { SkillMemory } from "./skillMemory.mjs";
 
 function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : (Number.isFinite(x) ? x : 0); }
 
+/** 去掉值为 undefined 的键(用于把回报时显式给的字段覆盖到记住的上一步语义上,而不被 undefined 抹掉)。 */
+function stripUndefined(o) {
+  const out = {};
+  for (const k in o) if (o[k] !== undefined) out[k] = o[k];
+  return out;
+}
+
 export class SkillfulAgent {
   /**
    * @param {object} opts        透传给 SelfModelAgent(含 skillReuseWeight 等技能竞价权重)。
@@ -36,9 +43,10 @@ export class SkillfulAgent {
   constructor(opts = {}, skillOpts = {}) {
     this.meta = new SelfModelAgent(opts);
     this.skills = new SkillMemory(skillOpts);
+    this.lastStep = null; // 上一步 decideStep 的语义,用于 learnStep 自动对齐(防遗漏字段悄悄退化)
   }
 
-  newTask() { this.meta.newTask(); }
+  newTask() { this.meta.newTask(); this.lastStep = null; }
 
   /**
    * 一步决策。把真实语义查询 → 技能信号 → 并入元认知 EMMS 竞价。
@@ -75,8 +83,13 @@ export class SkillfulAgent {
       actionType: step.actionType,
       skill,
     });
-    d.skillSignal = skillSignal;       // 完整技能检索结果(供审计)
-    d.reusableFix = skillSignal.priorFix; // 可复用修法本体(agent 可直接参考旧解)
+    d.skillSignal = skillSignal;          // 完整技能检索结果(供审计)
+    // ★仓库边界铁律:reusableFix 只取【同仓库 priorFix】;跨仓库经验绝不作为可直接套用的修法,
+    //   只放进 referenceCase(参考案例/需人工审查)。
+    d.reusableFix = skillSignal.priorFix ?? null;
+    d.referenceCase = skillSignal.referenceCase ?? null;
+    // 记住本步语义,供 learnStep 默认对齐(调用方回报时可省略重复字段)。
+    this.lastStep = { ...step };
     return d;
   }
 
@@ -96,7 +109,9 @@ export class SkillfulAgent {
    *   outcome,           1 成功 / 0 失败(真测试判定)
    * }
    */
-  learnStep(step, result = {}) {
+  learnStep(step = {}, result = {}) {
+    // ★自动对齐:用上一步 decideStep 记住的语义补齐缺失字段(防调用方遗漏 action_type 等导致悄悄退化)。
+    if (this.lastStep) step = { ...this.lastStep, ...stripUndefined(step) };
     // 1) 元认知层学习(真验证结果喂进残差/预算/原型)。
     const x = [clamp01(step.critHint ?? 0.5), clamp01(step.dHint ?? 0.5), clamp01(step.progress ?? 0)];
     this.meta.learnAbstract(x, clamp01(result.observedCrit ?? 0), !!result.ignited, {
@@ -110,17 +125,20 @@ export class SkillfulAgent {
     // 2) 技能层写入【真实语义经验】——仅当本步确有可记录的修法/验证结果(改动类步骤)。
     //    这是"学到特别的东西":把真实错误→真实修法→真实验证 存成可复用记录。
     const isMutating = this.meta.mutatingActions.has(step.actionType);
-    const hasRealOutcome = result.verifierResult != null || result.outcome != null || result.patchSummary;
+    const hasRealOutcome = result.verification != null || result.verifierResult != null || result.outcome != null || result.patchSummary;
     if (isMutating && hasRealOutcome) {
       this.skills.add({
-        repo: step.repo, lang: step.lang, fileType: step.fileType, actionType: step.actionType,
+        repo: step.repo, branch: step.branch, lang: step.lang, fileType: step.fileType, actionType: step.actionType,
         errorSignature: step.errorSignature, stackFeatures: step.stackFeatures,
         changeFootprint: result.changeFootprint,
         patchSummary: result.patchSummary,
+        // ★可信度来自【受信任执行器】写入的结构(source/exitCode/testCmd/commit/patch hash),非 agent 自报。
+        verification: result.verification,
         verifierResult: result.verifierResult,
         outcome: result.outcome,
       });
     }
+    this.lastStep = null; // 本步已结算,清空对齐缓存
   }
 
   feedback(success) { this.meta.feedback(success); }

@@ -2,7 +2,7 @@
 
 **Stop burning your best model on trivial steps — and stop letting your cheap model botch the one step that decides the whole task.**
 
-This is a tiny MCP service you ask one question per step — *System 1 (cheap) or System 2 (deliberate)?* — and it answers by **learning from outcomes**, not hand-written `if` rules. Bolt it onto any agent loop in five minutes.
+This decouples *"how much compute this step deserves (System 1 cheap generation / System 2 deliberation)"* out of your agent into a **separate, online-learning MCP service**. It decides each step with an economic auction model and calibrates online from real outcomes, replacing hand-written `if`-threshold rules. Standard MCP protocol, zero dependencies, drops into any agent loop.
 
 ```jsonc
 // add to your MCP client (Claude Desktop / Cursor / VS Code), then call decide_step before each step
@@ -33,15 +33,15 @@ Get it wrong in either direction and you lose:
 
 The fix is to pull *"how much effort"* out into a **separate, learnable service**, orthogonal to *"what to do."* Keep your planner and skills exactly as they are — just ask one extra question per step.
 
-**Under the hood it's three cooperating layers, not one heuristic** (they all bid in a single auction, §4.4):
+**Two layers are integrated into one online MCP auction; the third is a standalone beta module** (§4.4):
 
-| layer | what it learns | the question it answers |
-|---|---|---|
-| **Metacognition** (`selfModel`) | when a step is worth deliberating | *how much compute does this step deserve?* |
-| **Skill memory** (`skillMemory`) | domain experience grounded in **real verifier results** | *have I fixed this exact error in this repo before — and did the test actually pass?* |
-| **Meso-scale cluster** (`clusterAgent`) | strongly-coupled steps as one sub-goal | *should this whole sub-goal latch to deliberation instead of being fooled per-step by noisy hints?* |
+| layer | what it learns | the question it answers | integration |
+|---|---|---|---|
+| **Metacognition** (`selfModel`) | when a step is worth deliberating | *how much compute does this step deserve?* | ✅ online MCP auction |
+| **Skill memory** (`skillMemory`) | domain experience grounded in **trusted-executor verifier results** | *have I fixed this exact error in **this repo** before — and was the test exit code actually 0?* | ✅ online MCP auction |
+| **Meso-scale cluster** (`clusterAgent`) | strongly-coupled steps as one sub-goal | *should this whole sub-goal latch to deliberation instead of being fooled per-step by noisy hints?* | 🧪 standalone beta (not in MCP, no cluster tool, no skill retrieval) |
 
-Metacognition allocates compute; skill memory supplies verified content; the meso-scale layer protects pivotal sub-goals. None replaces the others, and you can use just the first layer and ignore the rest.
+Metacognition allocates compute and skill memory supplies verified content; the two bid in the same auction (`decide_step` / `report_outcome`). The meso-scale cluster layer is currently a **standalone beta prototype**: it wraps the metacognition layer on its own to validate the "latch a sub-goal" hypothesis, but is **not yet wired into this online MCP auction** and has no corresponding MCP tool or skill retrieval. You can use just the first layer and ignore the rest.
 
 ---
 
@@ -141,18 +141,18 @@ The key EMMS insight reused here: **a single global average/threshold is wrong.*
 
 These exact quantities are returned by `decide_step` as `p_crit`, `e_cost_s1`, `e_cost_s2`, `mu`, `regime_shift` — so the **decision basis you audit is the one that actually drove the choice** (`ignite ⟺ e_cost_s1 > e_cost_s2`). The legacy `rob_gain`/`eco_cost` are still returned for the old bidding figure but are **no longer the mode decision rule**. **Figure (e) in the overview** plots each step's expected-cost comparison; the diagonal is the coordination boundary `eCostS1 = eCostS2`.
 
-### 4.4 The three layers all bid in the *same* auction
+### 4.4 Metacognition + action + skill all bid in the *same* auction
 
-The maturation from "scheduler" to "framework" is this: the **action layer** and **skill layer** do not bypass the auction with `if/else` overrides — they enter the robust bid `robBid` as **barriers and shadow prices**, exactly the standard way constraints and incentives enter a constrained optimum. One bid, three sources of evidence:
+The maturation from "scheduler" to "framework" is this: the **action layer** and **skill layer** do not bypass the auction with `if/else` overrides — they enter the robust bid `robBid` as **barriers and shadow prices**, exactly the standard way constraints and incentives enter a constrained optimum. One bid, three sources of evidence (all in the online MCP path; the meso-scale cluster is a separate beta module, §6):
 
 $$\mathrm{robBid} = \underbrace{\mu\,\hat p\,\mathrm{missPenalty}}_{\text{metacognition}} + \underbrace{\text{actionPremium}}_{\text{action layer}} + \underbrace{\text{skillNovelty} + \text{crossRepo} - \text{skillReuse}}_{\text{skill layer}} + \underbrace{\text{barriers (irreversible/critical/budget)}}_{\text{safety}}$$
 
 | term | layer | effect on the bid | grounded in |
 |---|---|---|---|
 | `actionPremium` | action | mutating actions (`design_patch`/`apply_patch`/…) raise the bid **regardless of how low the risk hint is** | action type, orthogonal to the upstream hint |
-| `skillReuseDiscount` | skill | a **same-repo, test-passed** prior fix exists → **lower** the bid (reuse known solution, deliberate less) | only records with `verifier_result = test_passed` |
-| `skillNoveltyPremium` | skill | semantically unseen error/stack → **raise** the bid (explore cautiously) — scaled by stakes | local-embedding similarity to past errors |
-| `crossRepoPremium` | skill | similar prior fix but from a **different repo** → **raise** the bid (repo boundary, don't trust cross-domain blindly) | repo match vs best similarity |
+| `skillReuseDiscount` | skill | a **same-repo, trusted-verified** prior fix exists → **lower** the bid (reuse known solution, deliberate less) | only records a trusted executor marked exit code 0 |
+| `skillNoveltyPremium` | skill | semantically unseen error/stack → **raise** the bid (explore cautiously) — scaled by stakes | local-embedding similarity over decision-time error/stack |
+| `crossRepoPremium` | skill | similar prior episode but from a **different repo** → **raise** the bid; surfaces only a human-review `reference_case`, never a `reusable_fix` | repo match vs best similarity |
 
 **Two design rules that resolve the original `design_patch` miss:**
 
@@ -211,23 +211,26 @@ A skill record = **one solving experience that was actually verified**:
 ```
 { repo, lang, fileType, actionType,        // repo boundary + operation type (structured)
   errorSignature,                           // the real error text / exception type
-  stackFeatures: [token…],                  // real stack / symbol features
+  stackFeatures: [token…],                  // real stack / symbol features (redacted, ≤ 64)
   changeFootprint: {files,hunks,loc},       // real edit size
-  patchSummary,                             // the reusable fix (the "skill" content)
-  verifierResult, outcome,                  // ★ the REAL test result — test_passed / test_failed
-  embed }                                   // local embedding (token-hash, no paid model)
+  patchSummary,                             // the reusable fix (the "skill" content; redacted, size-capped)
+  verification: {                           // ★ written by a TRUSTED executor — not self-reported
+    source, exitCode, testCmd,              //   e.g. {source:"executor", exitCode:0, testCmd:"pytest -q"}
+    commitHash, patchHash, trusted },       //   provenance: only exitCode===0 + trusted source counts
+  injectionFlag,                            // prompt-injection marker on stored error/patch text
+  queryEmbed }                              // local embedding of DECISION-TIME fields only (no patch text)
 ```
 
-**Grounding discipline (this is the point).** Reuse confidence is weighted **only** by records whose `verifier_result = test_passed` (or `outcome = 1`). A failed attempt does **not** make the scheduler more confident — it directly falsifies the "it just trusts the upstream hint more and more" failure mode. When the same error recurs **in the same repo** and a verified fix exists, the skill layer surfaces it (`reusable_fix`) and lowers the bid; a similar fix from a **different** repo raises the bid instead (repo boundary). This is verified end-to-end in `smoke.mjs` (A/B/C checks) and asserted in `skillGateTest.mjs` (17 hard assertions).
+**Grounding discipline (this is the point).** Reuse confidence is weighted **only** by records a **trusted executor** marked with exit code 0 — an agent self-reporting `outcome = 1` does **not** count. A failed attempt does **not** make the scheduler more confident — it directly falsifies the "it just trusts the upstream hint more and more" failure mode. The retrieval vector encodes only **decision-time-visible** fields (repo/lang/error/stack); the post-hoc patch summary is excluded so it can't dilute error matching. When the same error recurs **in the same repo** and a trusted-verified fix exists, the skill layer surfaces it (`reusable_fix`) and lowers the bid; a similar episode from a **different** repo returns a `reference_case` **for human review only** (`reusable_fix` is always `null`) and raises the bid (repo boundary). Stored text is redacted (keys/tokens/emails), size-capped, and prompt-injection-flagged. Verified end-to-end in `smoke.mjs` (A/B/C/D checks) and asserted in `skillGateTest.mjs` (29 hard assertions).
 
 | | hand-written skill | metacognition prototype | **skill-memory record** |
 |---|---|---|---|
 | learns | nothing (human writes it) | *when* to deliberate | ***what* was the error → fix → did it pass** |
-| origin | a human writes trigger → steps | grows from experience | grows from **verified** solving episodes |
-| arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + test-passed → reuse; cross-repo → caution |
+| origin | a human writes trigger → steps | grows from experience | grows from **trusted-executor-verified** solving episodes |
+| arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + trusted-verified → reuse; **cross-repo → reference case for human review only, never a reusable fix** |
 | failure mode it fixes | — | over/under-thinking | re-searching a fix you already verified once |
 
-> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — this is *lexical* similarity retrieval over real error/stack/patch text, a zero-dependency starting point. It is **not** a trained semantic code embedding, and we do not claim it "understands" code semantics. Swapping in a real embedding model is a drop-in upgrade.
+> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — this is *lexical* similarity retrieval over real error/stack text (the query vector deliberately excludes post-hoc patch text), a zero-dependency starting point. It is **not** a trained semantic code embedding, and we do not claim it "understands" code semantics. Skill reusability is gated by a **trusted executor** (exit code, test command, commit/patch hash), not by an agent self-report. The meso-scale cluster layer (`clusterAgent.mjs`) is a **standalone beta module**: it is **not** wired into this online MCP auction, exposes no cluster MCP tool, and has no skill retrieval. Swapping in a real embedding model is a drop-in upgrade.
 
 ---
 
@@ -291,7 +294,7 @@ Paired t-test, ours vs router-online: Δ = 2.5 pt, **p = 4.9e-7**, Cohen's d = 0
 What genuinely stands up at review:
 
 1. **A metacognitive compute layer orthogonal to "what to do".** FrugalGPT does static routing, Reflexion is post-hoc, Voyager is still skills, RouteLLM has no shift-detection and no pollution-in-cost. Nobody makes *"how much compute"* an independent, learnable, MCP-exposed service driven by task-agnostic signals.
-2. **Three layers in one auction.** Metacognition (when to think), skill memory (verified domain experience), and meso-scale clusters all enter the *same* EMMS bid as barriers/shadow-prices (§4.4) — not stacked `if/else` overrides. Action type and verified prior fixes change the compute decision, anchored to **real verifier results**, not to the upstream hint.
+2. **Two layers in one online auction.** Metacognition (when to think) and skill memory (trusted-verified domain experience) enter the *same* EMMS bid as barriers/shadow-prices (§4.4) — not stacked `if/else` overrides. Action type and verified prior fixes change the compute decision, anchored to **trusted executor results**, not to the upstream hint. The meso-scale cluster is a separate beta module (not yet in this auction; see boundaries below).
 3. **Online regime-shift detection + prototype switching.** `sim < 0.7` forces re-examination; the system adapts mid-task where frozen thresholds lock up (§7.3, +5–10 pt, all p < 0.001).
 4. **Context pollution enters the decision cost.** *"The more you think, the messier it gets → the less you should think more."* Most frameworks ignore this; here it is a first-class term `ecoCost = c + λρ`.
 
@@ -304,6 +307,8 @@ Honest boundaries:
 - **`p_crit` is a risk score, not a calibrated probability.** It is the read-out criticality inflated toward caution under uncertainty (`clip(ĉ + ½·u·(1−ĉ))`); it is *not* claimed to be calibrated in the statistical sense (a 0.8 score does not mean 80% empirical critical rate).
 - **Synthetic environment with oracle labels.** All 20/30-seed results use a synthetic task generator with ground-truth criticality. They show the *mechanism* works under controlled shifts; they are not real-agent-trajectory evidence.
 - **The strongest baseline is still pending.** The fair baseline here is a single cost-sensitive logistic router; a tougher one would add **explicit change-point detection** to the cost-sensitive router. That comparison is future work.
+- **Two layers are integrated; the third is standalone beta.** Metacognition (`selfModel`) and skill memory (`skillMemory`) bid in the *same* online MCP auction. The meso-scale cluster (`clusterAgent`) is a **separate beta prototype** — not wired into that auction, exposing no cluster MCP tool, with no skill retrieval. Claiming "three layers in one online auction" would over-state the current integration.
+- **Skill reuse is gated by a trusted verifier, not self-report.** A record becomes reusable only when a trusted executor writes exit code 0 (with test command + commit/patch hash); cross-repo matches return a human-review reference case only, never a `reusable_fix`. Stored patch/error text is redacted, size-capped, and prompt-injection-flagged.
 - On a strong base model (e.g. Opus), the upstream ignition is rarely needed — the upgrade ladder already covers it. The advantage is clearest in **long-horizon / mid-task-shift / weak-model-or-expensive-token** regimes.
 
 ---

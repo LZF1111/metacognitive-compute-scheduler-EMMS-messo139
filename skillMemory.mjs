@@ -1,31 +1,32 @@
 /**
  * skillMemory.mjs —— 技能层(Skill Memory):自进化【领域语义】记忆。
  *
- * ── 为什么要它(用户质疑)──
- *   原 selfModel 进化的是元认知调度策略(该不该深思),caseMemory 只存抽象特征向量+成功率,
- *   两者都【学不到领域 know-how】(pytest 这个 bug 怎么修、这个 repo 的边界、这类报错的套路)。
- *   skillMemory 存【真实语义内容】并可复用——这才是"学到特别的东西"。
- *
- * ── 一条技能记录 = 一次被真实验证过的解决经验 ──
+ * ── 一条技能记录 = 一次被【受信任执行器】验证过的解决经验 ──
  *   {
- *     repo, lang, fileType, actionType,        // 仓库边界 + 操作类型(结构化)
- *     errorSignature,                           // 真实错误签名(报错文本/异常类型)
- *     stackFeatures: [token...],                // 真实堆栈/符号特征(函数名/文件名/异常)
- *     changeFootprint: {files,hunks,loc},       // 真实改动面(规模)
- *     patchSummary,                             // 真实修法摘要(可复用的"skill"本体)
- *     verifierResult,                           // ★真实验证结果(test_passed/test_failed/...)
- *     outcome,                                  // 1 成功 / 0 失败(由真实测试判定)
- *     embed                                     // 本地 embedding(token 哈希,不调付费模型)
+ *     repo, branch, lang, fileType, actionType,  // 仓库/分支边界 + 操作类型(结构化,用于隔离)
+ *     errorSignature,                            // 真实错误签名(决策时可见,脱敏后)
+ *     stackFeatures: [token...],                 // 真实堆栈/符号特征(决策时可见)
+ *     patchSummary,                              // 真实修法摘要(事后内容,脱敏后;绝不进检索向量)
+ *     changeFootprint: {files,hunks,loc},        // 真实改动面
+ *     verification: {                            // ★可信度来自【受信任测试执行器】,非 agent 自报
+ *       source, exitCode, testCmd, commitHash, patchHash, trusted
+ *     },
+ *     verifierResult, outcome,                   // 仅描述性标签(不单独决定可信度)
+ *     injectionFlag,                             // prompt-injection 嫌疑标记(命中→修法不外发)
+ *     queryEmbed                                 // ★仅由【决策前可见字段】构建(error/stack),不含 patch
  *   }
  *
- * ── 接地纪律(不退回"只信上游 hint")──
- *   • priorSuccess 只由【真实验证器通过的记录】加权——经验的可信度来自真测试,不是提示词。
- *   • 检索相似度基于【真实错误/堆栈/补丁文本】的本地 embedding——语义来自真实代码内容。
- *   • 跨仓库(repo 不匹配)会降低支持度并触发稳健溢价(仓库边界=不可盲信跨域经验)。
- *   • 不含本步结果(无泄漏):errorSignature/stack 是决策时可见的(报错先于修复)。
+ * ── 接地纪律(本轮审核要点)──
+ *   1. 检索向量只用【决策前可见】的错误/堆栈/仓库语义;patch 摘要【不进】检索向量(否则稀释错误匹配)。
+ *   2. 成功置信度只由【受信任执行器(exitCode===0)】的记录贡献——agent 自报 outcome=1 不算数。
+ *   3. 跨仓库经验【绝不】作为可直接复用的 reusable_fix 返回,只作为"参考案例/需人工审查"。
+ *   4. 明文内容先脱敏 + 大小截断 + prompt-injection 标记;按 repo/branch 隔离检索。
  */
 
 const EMBED_DIM = 64; // 本地 embedding 维度(固定;token 哈希进这个空间)
+const MAX_ERR_LEN = 512;     // errorSignature 截断上限(防超大日志撑爆记忆)
+const MAX_PATCH_LEN = 2000;  // patchSummary 截断上限
+const MAX_STACK_TOK = 64;    // stackFeatures token 上限
 
 function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : (Number.isFinite(x) ? x : 0); }
 
@@ -42,9 +43,49 @@ function hashTok(t) {
   return h >>> 0;
 }
 
+// ── 脱敏:把常见机密模式替换为不可逆占位,避免明文 patch/错误里带出 token/密钥 ──
+const SECRET_PATTERNS = [
+  [/-----BEGIN[ A-Z]*PRIVATE KEY-----[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]"],
+  [/\b(?:sk|pk|rk)-[A-Za-z0-9]{16,}\b/g, "[REDACTED_KEY]"],         // OpenAI/Stripe 风格
+  [/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_GH_TOKEN]"],       // GitHub token
+  [/\bAKIA[0-9A-Z]{16}\b/g, "[REDACTED_AWS_KEY]"],                  // AWS Access Key
+  [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK]"],        // Slack token
+  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED_JWT]"], // JWT
+  [/(password|passwd|secret|api[_-]?key|token|authorization|bearer)\s*[:=]\s*\S+/gi, "$1=[REDACTED]"],
+  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[REDACTED_EMAIL]"],
+];
+
+function redact(s) {
+  if (!s) return s;
+  let out = String(s);
+  for (const [re, rep] of SECRET_PATTERNS) out = out.replace(re, rep);
+  return out;
+}
+
+// ── prompt-injection 嫌疑检测:命中则标记,修法摘要不再作为可复用解外发(只当参考/需审查)──
+const INJECTION_PATTERNS = [
+  /ignore\s+(all\s+)?(previous|prior|above)\s+instructions/i,
+  /disregard\s+(the\s+)?(system|previous)\s+(prompt|instructions)/i,
+  /you\s+are\s+now\s+(a|an|the)\b/i,
+  /system\s*prompt\s*[:=]/i,
+  /<\/?(system|instructions?)>/i,
+];
+
+function looksInjected(...fields) {
+  for (const f of fields) {
+    if (!f) continue;
+    const s = String(f);
+    for (const re of INJECTION_PATTERNS) if (re.test(s)) return true;
+  }
+  return false;
+}
+
+/** 截断到上限(按字符)。 */
+function truncStr(s, n) { s = s == null ? "" : String(s); return s.length > n ? s.slice(0, n) : s; }
+
 /**
  * 本地 embedding:把一组文本字段的 token 哈希进 EMBED_DIM 维 + L2 归一化。
- * 这是"代码语义"的接地表示——完全来自真实文本(错误/堆栈/补丁/仓库/符号),无外部模型。
+ * 完全来自真实文本,无外部模型。★用于检索的字段只能是【决策前可见】的(error/stack/repo 语义),不含 patch。
  */
 export function localEmbed(fields) {
   const v = new Float64Array(EMBED_DIM);
@@ -68,80 +109,113 @@ function cosine(a, b) {
   return dot; // 两者已 L2 归一化 → 点积即余弦
 }
 
+/**
+ * 判定一条记录是否【受信任验证通过】。
+ * 可信度只认【受信任执行器写入的 exitCode===0】,不认 agent 自报的 outcome/verifierResult。
+ * 兼容:显式 verification.trusted===true 也认。
+ */
+function trustedPass(rec, trustedSources) {
+  const v = rec.verification;
+  if (!v) return false;
+  if (v.trusted === true) return true;
+  return trustedSources.includes(v.source) && v.exitCode === 0;
+}
+
 export class SkillMemory {
   /**
    * @param {object} opts
    *   k             检索近邻数(默认 7)
    *   simStrong     "强先例"相似度阈(默认 0.6):≥此才计入 support
-   *   maxRecords    库上限(默认 5000;满了淘汰最旧的失败记录优先)
+   *   maxRecords    库上限(默认 5000;满了淘汰最旧的"未受信验证"记录优先)
+   *   trustedSources 受信任执行器来源白名单(默认 ["executor"])
    */
   constructor(opts = {}) {
     this.k = opts.k ?? 7;
     this.simStrong = opts.simStrong ?? 0.6;
     this.maxRecords = opts.maxRecords ?? 5000;
+    this.trustedSources = opts.trustedSources ?? ["executor"];
     /** @type {Array<object>} */
     this.records = [];
   }
 
   size() { return this.records.length; }
 
-  /** 为一条记录构建语义 embedding(仓库+符号+错误+补丁摘要+操作类型)。 */
-  _embedOf(rec) {
+  /** 检索向量 = 仅【决策前可见字段】(repo/lang/fileType/actionType/error/stack)。★不含 patchSummary。 */
+  _queryEmbedOf(rec) {
     return localEmbed([
       rec.repo, rec.lang, rec.fileType, rec.actionType,
       rec.errorSignature,
       Array.isArray(rec.stackFeatures) ? rec.stackFeatures.join(" ") : rec.stackFeatures,
-      rec.patchSummary,
     ]);
   }
 
+  /** 把 verification 规整为统一结构,并据【受信任来源 + exitCode===0】派生 trusted。 */
+  _normVerification(v) {
+    if (!v || typeof v !== "object") return { source: null, exitCode: null, testCmd: null, commitHash: null, patchHash: null, trusted: false };
+    const source = v.source ?? null;
+    const exitCode = (typeof v.exitCode === "number") ? v.exitCode : null;
+    const trusted = (this.trustedSources.includes(source) && exitCode === 0) || v.trusted === true;
+    return {
+      source,
+      exitCode,
+      testCmd: v.testCmd ? truncStr(redact(v.testCmd), 256) : null,
+      commitHash: v.commitHash ? truncStr(String(v.commitHash), 64) : null,
+      patchHash: v.patchHash ? truncStr(String(v.patchHash), 64) : null,
+      trusted,
+    };
+  }
+
   /**
-   * 追加一条【已被真实验证】的技能记录。outcome/verifierResult 来自真测试,不是估计。
-   * 决策时不可见的字段(patchSummary/outcome/verifierResult)只在这里写入,query 不泄漏它们做相似度。
+   * 追加一条技能记录。可信度由 verification(受信任执行器)决定,不由 agent 自报 outcome 决定。
+   * 写入前:脱敏 + 大小截断 + prompt-injection 标记。检索向量只用决策前可见字段。
    */
   add(rec) {
+    const errorSignature = truncStr(redact(rec.errorSignature), MAX_ERR_LEN);
+    const patchSummary = truncStr(redact(rec.patchSummary), MAX_PATCH_LEN);
+    const stackFeatures = (Array.isArray(rec.stackFeatures) ? rec.stackFeatures : [])
+      .slice(0, MAX_STACK_TOK).map((t) => truncStr(redact(t), 128));
+    const verification = this._normVerification(rec.verification);
+    const injectionFlag = looksInjected(rec.errorSignature, rec.patchSummary, ...(stackFeatures || []));
     const r = {
-      repo: rec.repo ?? "", lang: rec.lang ?? "", fileType: rec.fileType ?? "",
+      repo: rec.repo ?? "", branch: rec.branch ?? "", lang: rec.lang ?? "", fileType: rec.fileType ?? "",
       actionType: rec.actionType ?? "",
-      errorSignature: rec.errorSignature ?? "",
-      stackFeatures: rec.stackFeatures ?? [],
+      errorSignature,
+      stackFeatures,
       changeFootprint: rec.changeFootprint ?? { files: 0, hunks: 0, loc: 0 },
-      patchSummary: rec.patchSummary ?? "",
-      verifierResult: rec.verifierResult ?? null,   // 真实验证结果
-      outcome: rec.outcome != null ? (rec.outcome ? 1 : 0) : null,
+      patchSummary,
+      verification,
+      verifierResult: rec.verifierResult ?? null,                       // 描述性标签
+      outcome: rec.outcome != null ? (rec.outcome ? 1 : 0) : null,      // 描述性标签
+      injectionFlag,
       ts: Date.now(),
     };
-    r.embed = this._embedOf(r);
+    r.queryEmbed = this._queryEmbedOf(r);
     this.records.push(r);
     if (this.records.length > this.maxRecords) this._evict();
     return this.records.length;
   }
 
-  /** 淘汰:优先删最旧的"未验证或失败"记录;保住被真实验证通过的成功经验。 */
+  /** 淘汰:优先删最旧的【未受信验证】记录;保住被受信任执行器验证通过的成功经验。 */
   _evict() {
     let wi = 0, worst = Infinity;
     for (let i = 0; i < this.records.length; i++) {
       const r = this.records[i];
-      // 保留分:验证通过的成功记录最高;失败/未验证的旧记录最低。
-      const verified = r.verifierResult === "test_passed" || r.outcome === 1;
-      const score = (verified ? 1e9 : 0) + r.ts; // 验证过的几乎不删;否则按时间(旧的先删)
+      const score = (trustedPass(r, this.trustedSources) ? 1e9 : 0) + r.ts; // 受信验证过的几乎不删
       if (score < worst) { worst = score; wi = i; }
     }
     this.records.splice(wi, 1);
   }
 
   /**
-   * 检索:给【决策时可见】的查询(报错/堆栈/仓库/操作类型),返回可复用技能信号。
-   * @param {object} q {repo, lang, fileType, actionType, errorSignature, stackFeatures}
+   * 检索:给【决策时可见】的查询,返回可复用技能信号。
+   * ★仓库边界:reusable_fix(priorFix)只可能来自【同仓库 + 受信验证 + 强相似 + 非注入】的记录;
+   *   跨仓库的相似经验绝不作为 reusable_fix,只放进 referenceCase(参考案例/需人工审查)。
+   * @param {object} q {repo, branch, lang, fileType, actionType, errorSignature, stackFeatures}
    * @returns {{
-   *   novelty,          与最近邻不相似度 [0,1](没见过→1)
-   *   priorSuccess,     相似度×【真实验证】加权成功率 [0,1](强先例→趋 1/0)
-   *   support,          强近邻数(sim≥simStrong)
-   *   verifiedSupport,  其中被真实验证通过的近邻数(经验可信度)
-   *   repoMatch,        最强近邻是否同仓库(仓库边界信号)[0,1]
-   *   priorFix,         最佳【已验证】近邻的修法摘要(可复用的 skill 本体)| null
-   *   bestSim,          最高相似度
-   *   neighbors         top-k 近邻(含 sim)
+   *   novelty, priorSuccess, support, verifiedSupport, repoMatch,
+   *   priorFix,         同仓库可直接复用修法 | null
+   *   referenceCase,    跨仓库参考案例 {repo, patchSummary, sim, note} | null(需人工审查,不可直接套用)
+   *   bestSim, neighbors
    * }}
    */
   query(q) {
@@ -152,49 +226,61 @@ export class SkillMemory {
     ]);
     if (this.records.length === 0) {
       return { novelty: 1, priorSuccess: 0.5, support: 0, verifiedSupport: 0,
-               repoMatch: 0, priorFix: null, bestSim: 0, neighbors: [] };
+               repoMatch: 0, priorFix: null, referenceCase: null, bestSim: 0, neighbors: [] };
     }
-    const scored = this.records.map((r) => ({ r, sim: cosine(qEmbed, r.embed) }));
+    const scored = this.records.map((r) => ({ r, sim: cosine(qEmbed, r.queryEmbed) }));
     scored.sort((a, b) => b.sim - a.sim);
     const top = scored.slice(0, this.k);
     const bestSim = top[0].sim;
     const novelty = clamp01(1 - bestSim);
 
-    // ★真实验证加权成功率:只有【被真测试验证过】的记录才贡献置信,且按相似度加权。
+    // 同仓库(+同分支若给定)判定:仓库/分支隔离。
+    const sameContext = (r) => q.repo && r.repo === q.repo && (!q.branch || !r.branch || r.branch === q.branch);
+
     let wSum = 0, sSum = 0, verifiedSupport = 0, support = 0;
-    let priorFix = null, priorFixSim = -1;
+    let priorFix = null, priorFixSim = -1;                 // 仅同仓库 + 受信验证 + 非注入
+    let refCase = null, refSim = -1;                       // 跨仓库受信验证(参考用)
     for (const { r, sim } of top) {
       if (sim >= this.simStrong) support++;
-      const verified = r.verifierResult === "test_passed" || r.outcome === 1;
-      const isVerifiedRecord = r.verifierResult != null || r.outcome != null;
-      if (isVerifiedRecord) {
+      const verified = trustedPass(r, this.trustedSources);   // ★只认受信任执行器
+      if (r.verification && r.verification.source != null) {
         const w = Math.max(0, sim);
         wSum += w; sSum += w * (verified ? 1 : 0);
         if (sim >= this.simStrong && verified) verifiedSupport++;
       }
-      // 可复用 skill 本体:取相似度最高且【验证通过】的修法摘要。
-      if (verified && r.patchSummary && sim > priorFixSim) { priorFix = r.patchSummary; priorFixSim = sim; }
+      if (!verified || !r.patchSummary || r.injectionFlag) continue; // 注入嫌疑/未受信 → 不外发修法
+      if (sameContext(r)) {
+        if (sim > priorFixSim) { priorFix = r.patchSummary; priorFixSim = sim; }
+      } else if (sim > refSim) {
+        refCase = { repo: r.repo, patchSummary: r.patchSummary, sim: +sim.toFixed(4),
+                    note: "cross-repo reference — needs human review, do NOT apply blindly" };
+        refSim = sim;
+      }
     }
     const priorSuccess = wSum > 1e-9 ? clamp01(sSum / wSum) : 0.5;
-    // 仓库边界:最强近邻是否同仓库(同仓库经验更可信;跨仓库要打折/触发稳健溢价)。
-    const repoMatch = (q.repo && top[0].r.repo === q.repo) ? clamp01(bestSim) : 0;
+    const repoMatch = sameContext(top[0].r) ? clamp01(bestSim) : 0;
 
-    return { novelty, priorSuccess, support, verifiedSupport, repoMatch,
-             priorFix: priorFixSim >= this.simStrong ? priorFix : null,
-             bestSim, neighbors: top };
+    return {
+      novelty, priorSuccess, support, verifiedSupport, repoMatch,
+      // ★仓库边界铁律:reusable_fix 只在【同仓库 + 强相似】时给;否则一律 null。
+      priorFix: priorFixSim >= this.simStrong ? priorFix : null,
+      referenceCase: refSim >= this.simStrong ? refCase : null,
+      bestSim, neighbors: top,
+    };
   }
 
-  /** 序列化(持久化技能库:跨进程/跨会话复用学到的领域经验)。 */
+  /** 序列化(持久化技能库;不含派生的 queryEmbed,加载时重算)。 */
   toJSON() {
     return this.records.map((r) => ({
-      repo: r.repo, lang: r.lang, fileType: r.fileType, actionType: r.actionType,
+      repo: r.repo, branch: r.branch, lang: r.lang, fileType: r.fileType, actionType: r.actionType,
       errorSignature: r.errorSignature, stackFeatures: r.stackFeatures,
       changeFootprint: r.changeFootprint, patchSummary: r.patchSummary,
-      verifierResult: r.verifierResult, outcome: r.outcome, ts: r.ts,
+      verification: r.verification, verifierResult: r.verifierResult, outcome: r.outcome,
+      injectionFlag: r.injectionFlag, ts: r.ts,
     }));
   }
 
-  /** 从序列化数组重建(重算 embedding,保证哈希一致)。 */
+  /** 从序列化数组重建(重算 queryEmbed,保证哈希一致)。 */
   static fromJSON(arr, opts = {}) {
     const m = new SkillMemory(opts);
     for (const rec of arr || []) m.add(rec);

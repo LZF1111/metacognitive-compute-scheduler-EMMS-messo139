@@ -2,7 +2,7 @@
 
 **Stop burning your best model on trivial steps — and stop letting your cheap model botch the one step that decides the whole task.**
 
-This is a tiny MCP service you ask one question per step — *System 1 (cheap) or System 2 (deliberate)?* — and it answers by **learning from outcomes**, not hand-written `if` rules. Bolt it onto any agent loop in five minutes.
+This decouples *"how much compute this step deserves (System 1 cheap generation / System 2 deliberation)"* out of your agent into a **separate, online-learning MCP service**. It decides each step with an economic auction model and calibrates online from real outcomes, replacing hand-written `if`-threshold rules. Standard MCP protocol, zero dependencies, drops into any agent loop.
 
 ```jsonc
 // add to your MCP client (Claude Desktop / Cursor / VS Code), then call decide_step before each step
@@ -169,15 +169,15 @@ A prototype = `{protoFeat: situation centroid, affine read-out ĉ(x), self-calib
 
 Metacognition decides *how much to think*; it does **not** learn *what a `ScopeMismatch` in pytest looks like or how it was fixed*. That domain content is the job of a dedicated **skill-memory layer** (`skillMemory.mjs`). The two are complementary: the scheduler allocates effort, the skill memory supplies the verified content that makes that effort cheaper.
 
-A skill record = **one solving experience that was actually verified**: `{repo, lang, fileType, actionType, errorSignature, stackFeatures, changeFootprint, patchSummary, verifierResult, outcome, embed}`. **Reuse confidence is weighted only by records whose `verifier_result = test_passed`** — a failed attempt does not make the scheduler more confident. Same error, same repo, verified fix → surface `reusable_fix` and lower the bid; similar fix from a **different** repo → raise the bid (repo boundary). Verified end-to-end in `smoke.mjs` (A/B/C) and `skillGateTest.mjs` (17 assertions).
+A skill record = **one solving experience verified by a trusted executor**: `{repo, branch, lang, fileType, actionType, errorSignature, stackFeatures, changeFootprint, patchSummary, verification{source, exitCode, testCmd, commitHash, patchHash, trusted}, injectionFlag, queryEmbed}`. **Reuse confidence is weighted only by records the executor wrote with exit code 0** — an agent self-reporting `outcome=1` does not count, and a failed attempt does not make the scheduler more confident. The retrieval vector `queryEmbed` encodes only the **decision-time-visible error/stack**; the post-hoc patch summary is *not* mixed in (so it can't dilute error matching). Same error, same repo, trusted-verified fix → surface `reusable_fix` and lower the bid; a similar episode from a **different** repo → return a `reference_case` **for human review only** (`reusable_fix` is always `null`) and raise the bid (repo boundary). Plain-text patch/error content is redacted (keys/tokens/emails), size-capped, and prompt-injection-flagged before storage. Verified end-to-end in `smoke.mjs` (A/B/C/D) and `skillGateTest.mjs` (29 assertions).
 
 | | hand-written skill | metacognition prototype | **skill-memory record** |
 |---|---|---|---|
 | learns | nothing (human writes it) | *when* to deliberate | ***what* error → fix → did it pass** |
-| origin | a human writes trigger → steps | grows from experience | grows from **verified** solving episodes |
-| arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + test-passed → reuse; cross-repo → caution |
+| origin | a human writes trigger → steps | grows from experience | grows from **trusted-executor-verified** solving episodes |
+| arbitration | hard trigger, easy to misfire | similarity + confidence | same-repo + trusted-verified → reuse; **cross-repo → reference case for human review only, never a reusable fix** |
 
-> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — *lexical* similarity retrieval over real error/stack/patch text, a zero-dependency starting point, **not** a trained semantic code embedding. The meso-scale cluster layer (`clusterAgent.mjs`) aggregates strongly-coupled steps into a sub-goal cluster and latches it to deliberation under noisy hints, but does **not** auto-discover cluster boundaries yet (the outer agent calls `startCluster()`).
+> **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — *lexical* similarity retrieval over real error/stack text, a zero-dependency starting point, **not** a trained semantic code embedding (and the query vector deliberately excludes post-hoc patch text). Skill reusability is gated by a **trusted executor** (exit code, test command, commit/patch hash) — not by an agent self-reporting `outcome=1`. The meso-scale cluster layer (`clusterAgent.mjs`) is currently a **standalone beta module**: it wraps the metacognition layer on its own and is **not yet wired into this online MCP auction** — it exposes no cluster MCP tool and no skill retrieval, and it does **not** auto-discover cluster boundaries (the outer agent must call `startCluster()` explicitly).
 
 ---
 
@@ -245,6 +245,8 @@ Honest boundaries:
 - **`p_crit` is a risk score, not a calibrated probability.** It is the read-out criticality inflated toward caution under uncertainty (`clip(ĉ + ½·u·(1−ĉ))`); it is *not* claimed to be calibrated in the statistical sense (a 0.8 score does not mean 80% empirical critical rate).
 - **Synthetic environment with oracle labels.** All 20/30-seed results use a synthetic task generator with ground-truth criticality. They show the *mechanism* works under controlled shifts; they are not real-agent-trajectory evidence.
 - **The strongest baseline is still pending.** The fair baseline here is a single cost-sensitive logistic router; a tougher one would add **explicit change-point detection** to the cost-sensitive router. That comparison is future work.
+- **Two layers are integrated; the third is standalone beta.** Metacognition (`selfModel`) and skill memory (`skillMemory`) bid in the *same* online MCP auction (`decide_step` / `report_outcome`). The meso-scale cluster (`clusterAgent`) is a **separate beta prototype**: it is **not** wired into that auction, exposes no cluster MCP tool, and has no skill retrieval. Claiming "three layers in one online auction" would over-state the current integration.
+- **Skill reuse is gated by a trusted verifier, not self-report.** A record becomes reusable only when a trusted executor writes exit code 0 (with test command + commit/patch hash); cross-repo matches are returned as human-review reference cases only, never as a `reusable_fix`. The 64-dim hash is lexical, not semantic.
 - On a strong base model (e.g. Opus), the upstream ignition is rarely needed — the upgrade ladder already covers it. The advantage is clearest in **long-horizon / mid-task-shift / weak-model-or-expensive-token** regimes.
 
 ---

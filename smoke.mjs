@@ -102,12 +102,12 @@ const log = (...a) => console.log(...a);
   const passA = d1.is_mutating === true && d1.verify === "review" && d1.reusable_fix == null && (d1.skill_signal?.novelty ?? 0) > 0.5;
   log(`     [${passA ? "PASS" : "FAIL"}] 改动步强制验证(design_patch→review) + 首遇无可复用修法 + novelty 高`);
 
-  // 回报真实修法 + 真实测试通过 → 写入技能库(这才是"学到领域经验")。
+  // 回报真实修法 + 【受信任执行器】验证通过(exit_code=0) → 写入技能库(这才是"学到领域经验")。
   await tool("report_outcome", {
     ...skillStep, observed_criticality: 0.85, used_system2: true, verifier_passed: true,
     patch_summary: "把 session-scoped fixture 降为 function scope 并显式 request 依赖",
     change_footprint: { files: 1, hunks: 2, loc: 9 },
-    verifier_result: "test_passed", outcome: 1,
+    verification: { source: "executor", exit_code: 0, test_cmd: "pytest -q", commit_hash: "deadbeef", patch_hash: "f00d" },
   });
 
   // (B) 再遇同仓库同类错误:应检索到【已验证】可复用修法 → reusable_fix 非空、repo_match>0、novelty 降。
@@ -118,12 +118,26 @@ const log = (...a) => console.log(...a);
   const passB = d2.reusable_fix != null && (d2.skill_signal?.repo_match ?? 0) > 0 && (d2.skill_signal?.verified_support ?? 0) >= 1;
   log(`     [${passB ? "PASS" : "FAIL"}] 同仓库+真验证 → 检索到可复用修法(经验真的被复用)`);
 
-  // (C) 跨仓库遇同类错误:repo_match 应=0(仓库边界),不盲信跨域经验。
+  // (C) 跨仓库遇同类错误:repo_match 应=0(仓库边界),且 ★reusable_fix 必须为 null(绝不把 pytest 修法当 flask 可复用解)。
   const d3 = await tool("decide_step", { ...skillStep, repo: "flask" });
   log(`(C) 跨仓库(flask)同类错误: repo_match=${d3.skill_signal?.repo_match} cross_repo_premium=${d3.cross_repo_premium}`);
-  const passC = (d3.skill_signal?.repo_match ?? 1) === 0;
-  log(`     [${passC ? "PASS" : "FAIL"}] 跨仓库 repo_match=0(仓库边界生效)`);
+  log(`     reusable_fix=${JSON.stringify(d3.reusable_fix)}  reference_case=${d3.reference_case ? "有(仅参考)" : "无"}`);
+  const passC = (d3.skill_signal?.repo_match ?? 1) === 0 && d3.reusable_fix === null && d3.reference_case != null;
+  log(`     [${passC ? "PASS" : "FAIL"}] ★P0: 跨仓库 repo_match=0 且 reusable_fix===null(只给 reference_case 供人工审查)`);
   await tool("report_outcome", { ...skillStep, observed_criticality: 0.3, used_system2: false });
+
+  // (D) report_outcome 自动对齐:重记一步同仓库 design_patch,但回报时【故意不传语义键】——
+  //   应自动沿用上一步 decide 的 action_type/repo,仍写成技能记录(防遗漏字段悄悄退化)。
+  await tool("decide_step", skillStep);
+  const nBefore = (await tool("get_stats", { sessionId: sid })).nSkills;
+  await tool("report_outcome", {
+    sessionId: sid, observed_criticality: 0.8, used_system2: true,  // ★不传 action_type/repo/error_signature
+    patch_summary: "同类修法第二例", verification: { source: "executor", exit_code: 0 },
+  });
+  const nAfter = (await tool("get_stats", { sessionId: sid })).nSkills;
+  const passD = nAfter > nBefore;
+  log(`(D) report_outcome 省略语义键 → 自动对齐上一步 → 技能记录 ${nBefore}→${nAfter}`);
+  log(`     [${passD ? "PASS" : "FAIL"}] 遗漏 action_type 也不退化(自动沿用 lastStep 语义)`);
 
   // 5) 验证持久化：关闭→新会话同 namespace→应能复用【原型 + 技能记忆】
   log("\nclose_session →", JSON.stringify(await tool("close_session", { sessionId: sid })));
@@ -132,8 +146,8 @@ const log = (...a) => console.log(...a);
   const passPersist = reopen.loadedPrototypes > 0 && reopen.loadedSkills > 0;
   log(`[${passPersist ? "PASS" : "FAIL"}] 元认知原型 + 技能记忆 跨进程持久化复用`);
 
-  const allPass = passA && passB && passC && passPersist;
-  log(`\n${allPass ? "✓ 三层框架已真正接入 MCP" : "✗ 三层接入存在断点"}: A(动作强制验证)=${passA} B(技能复用)=${passB} C(仓库边界)=${passC} 持久化=${passPersist}`);
+  const allPass = passA && passB && passC && passD && passPersist;
+  log(`\n${allPass ? "✓ 两层(元认知+技能记忆)已真正接入 MCP" : "✗ 接入存在断点"}: A(动作强制验证)=${passA} B(同仓库复用)=${passB} C(跨仓库不泄漏)=${passC} D(自动对齐)=${passD} 持久化=${passPersist}`);
 
   // 清理本次 smoke 产生的持久化文件(不污染 store 目录)。
   try { fs.rmSync(path.join(__dir, "store", `${ns}.json`), { force: true }); } catch {}
