@@ -18,7 +18,12 @@ This decouples *"how much compute this step deserves (System 1 cheap generation 
 
 ![overview](figures/overview.png)
 
-> **Headline result** (semi-synthetic on real SWE-bench Pro gold-patch structure, 24 seeds × 60 sessions; **not** an agent `Resolve@k`): the meso-scale layer cuts critical-subtask misses vs per-step routing (**Δ = −1.33, p = 0.0017**) while the extra spend stays within a preset bound (**+0.9% tokens / +1.1% System2 calls**, both increments significant but inside the +10% budget) — i.e. it finds the *right* steps to think hard on, not just *more* of them. Full numbers, how to read each panel, and honest scope: [§7](#7-evidence-semi-synthetic-on-real-swe-bench-pro-structure).
+> **Headline result — two layers of evidence, stated honestly:**
+>
+> 1. **Real agent + official judge (pilot, N = 10, [§7b](#7b-real-agent-on-swe-bench-pro-under-the-official-docker-judge-pilot-n--10)).** On 10 hard SWE-bench Pro instances, real Docker agents scored by the **official pytest judge**, under one shared token budget: the EMMS scheduler resolved **3/10 vs 2/10 (fixed-skill) vs 1/10 (max-compute-always)** while spending **~3× fewer tokens per solved task**. This is *more solved for less compute under a shared budget* — **not** "fast and accurate" in absolute terms (3/10 is a low absolute rate; these tasks are hard). N = 10 is a pilot: directional, not yet statistically significant.
+> 2. **Mechanism evidence (semi-synthetic, 24 seeds × 60 sessions, [§7](#7-evidence-semi-synthetic-on-real-swe-bench-pro-structure); *not* an agent `Resolve@k`).** Using real SWE-bench Pro gold-patch *structure*, the meso-scale layer cuts critical-subtask misses vs per-step routing (**Δ = −1.33, p = 0.0017**) while extra spend stays within a preset bound (**+0.9% tokens / +1.1% System2 calls**, both significant but inside the +10% budget) — it finds the *right* steps to think hard on, not just *more* of them.
+
+---
 
 ---
 
@@ -235,6 +240,17 @@ A skill record = **one solving experience that was actually verified**:
 
 > **Honest boundary.** The local embedding is a **64-dim FNV-1a token hash** — this is *lexical* similarity retrieval over real error/stack text (the query vector deliberately excludes post-hoc patch text), a zero-dependency starting point. It is **not** a trained semantic code embedding, and we do not claim it "understands" code semantics. Skill reusability is gated by a **cryptographically attested** trusted executor (HMAC-signed exit code + nonce + timestamp, see `attest.mjs`), not by an agent self-report or a forgeable plaintext claim. Swapping in a real embedding model is a drop-in upgrade.
 
+### 6a. Two run modes (endpoint isolation)
+
+The signing endpoint `issue_attestation` mints trust tokens, so it must never be reachable by an untrusted client. The server therefore runs in one of two modes:
+
+| mode | start command | `issue_attestation` |
+|---|---|---|
+| **SCHEDULER** (default) | `npm start` | hidden from `tools/list` **and** rejected if called — this is what an untrusted MCP client connects to |
+| **EXECUTOR** (trusted) | `EMMS_EXECUTOR_ENDPOINT=1 npm start` (or `npm run start:executor`) | exposed; run **only** behind trusted isolation (local/unix-socket), never facing untrusted clients |
+
+The HMAC secret stops *forging a token without the server*; the mode split stops *reaching the signer at all*. Both are needed. Verified in `endpointIsolationTest.mjs` (run `npm run test:isolation`).
+
 ---
 
 ## 6b. The meso-scale cluster layer (sub-goal clusters)
@@ -332,6 +348,27 @@ A 2×3 composite of the figures above (arm cost, M1/M2, learning, μ, bidding, n
 
 ---
 
+## 7b. Real agent on SWE-bench Pro under the official Docker judge (pilot, N = 10)
+
+> **This is the real-trajectory evidence the §7 figures are *not*.** A real agent (real Docker container checked out to `base_commit`, bash tools, up to 250 turns) generated real `git diff` patches for 10 hard SWE-bench Pro instances; each patch was scored by the **official `swe_bench_pro_eval.py` judge running pytest** (FAIL_TO_PASS must turn green). Three arms shared one token budget so saving on easy steps leaves compute for hard ones. **N = 10 is a pilot — directionally informative, not statistically significant.**
+
+| arm | resolved (official pytest) | tokens / resolved | resolved per 100k tokens |
+|---|---|---|---|
+| `always-full` (max compute every step) | **1 / 10** | 4,140,955 | 0.024 |
+| `static-skill` (fixed hard=full rule) | **2 / 10** | 1,846,046 | 0.054 |
+| `conscious` (EMMS scheduler) | **3 / 10** | **1,300,850** | **0.077** |
+
+**What this does and does not say — read honestly:**
+
+- **It is not "fast and accurate" in absolute terms.** 3/10 is a low absolute resolve rate; these are genuinely hard tasks and every arm fails most of them. The honest claim is **relative, under a shared budget**: the scheduler resolved *more* (3 vs 2 vs 1) while spending the *least per solved task* (~3× cheaper than always-full). It is "more solved for less compute," not "solves everything quickly."
+- **`always-full` actually hurt:** 2 of its 10 attempts produced empty/over-long patches (context blew up under unconditional max compute). Evidence that "max compute everywhere" is not free.
+- **Skill evolution happened on real outcomes.** Replaying the 10 real PASS/FAIL results through a fresh core, prototypes grew `0 → 1 → 2 → 3`, the shadow price `μ` adapted `1.0 → 1.41`, and System2 ignitions accumulated `0 → 5` — i.e. it learned *which* steps deserved deliberation as it went.
+- **Pilot caveat stands:** N = 10, single base model, one seed. A statistically meaningful claim needs ≥ 5 seeds × more instances. This is the *gold-standard method* applied at *pilot scale*, reported as such.
+
+Raw artifacts (per-instance patches, judge `eval_results.json`, token/turn records) live on the eval server; the harness is `agent-eval/runBench.mjs` (real Docker orchestrator) + `harness/swe_bench_pro_eval.py` (official judge).
+
+---
+
 ## 8. Novelty (honest positioning)
 
 What genuinely stands up at review:
@@ -351,8 +388,8 @@ Honest boundaries:
 - **Synthetic environment with oracle labels.** All 20/30-seed results use a synthetic task generator with ground-truth criticality. They show the *mechanism* works under controlled shifts; they are not real-agent-trajectory evidence.
 - **The strongest baselines are still pending.** The fair baseline here is a single cost-sensitive router. Tougher ones we have **not** yet run: a real-model router, a contextual bandit, an **explicit change-point router**, a standard RAG/skill baseline, and a cluster-on/off ablation **under a real agent scaffold**. Those comparisons are future work.
 - **All three layers are integrated.** Metacognition (`selfModel`), skill memory (`skillMemory`), and the meso-scale cluster (`clusterIndex`) all bid in the *same* online MCP auction. The meso-scale layer feeds a coupling premium into `decide_step` and exposes discovered structure via `dump_clusters`; clusters are auto-discovered from decision-time-visible file/symbol overlap, not hand-fed.
-- **Skill reuse trust is gated by cryptographic attestation, not a self-reported claim.** Trust is **not** granted from a plaintext `{source:"executor", exit_code:0}` (which a remote MCP client could forge). A trusted executor that holds a **server-only HMAC secret** signs the verification payload; the scheduler grants trust only on a **valid signature + un-replayed nonce + fresh timestamp** (`attest.mjs`). A client without the secret cannot forge or replay. The local dev fallback (no attestor) still works for reproducible experiments but is **explicitly flagged `insecureTrust`** and must not be used in production. Threat model: this defends against forged/replayed verifications from untrusted clients; it does **not** defend against a compromised scheduler process or leaked key — true distributed/TEE executor attestation is named future work. Asserted in `skillGateTest.mjs` (F1–F7: forge-without-key, valid-token, replay, tamper, stale, require-attestation, insecure-fallback).
-- **The "evidence" is semi-synthetic, not an agent trajectory.** §7's `eval_swebpro_clusters` uses **real SWE-bench Pro gold-patch structure** (which files/symbols are co-changed) to define which sub-goals are truly critical, then layers **modeled** per-step hint noise + a System2=0.9 success rate + distractor steps. The gold patch is **future information** for a real online decision; we only use its *structure*. So this proves the **mechanism** (does auto-clustering rescue weak-hint critical steps under real coupling), **not** a project `Resolve@k`. End-to-end `Resolve@k` needs a real agent scaffold emitting per-step file/symbol/test signals + an official Docker judge — named future work.
+- **Skill reuse trust is gated by cryptographic attestation, not a self-reported claim.** Trust is **not** granted from a plaintext `{source:"executor", exit_code:0}` (which a remote MCP client could forge). A trusted executor that holds a **server-only HMAC secret** signs the verification payload; the scheduler grants trust only on a **valid signature + un-replayed nonce + fresh timestamp** (`attest.mjs`). A client without the secret cannot forge or replay. **The minting endpoint is also isolated at the transport layer:** `issue_attestation` is **hidden and blocked by default** (SCHEDULER mode) and only exposed when the process is explicitly started as a trusted executor (`EMMS_EXECUTOR_ENDPOINT=1`) — so an untrusted scheduler client cannot even reach the signer (verified in `endpointIsolationTest.mjs`). The local dev fallback (no attestor) still works for reproducible experiments but is **explicitly flagged `insecureTrust`** and must not be used in production. Threat model: this defends against forged/replayed verifications from untrusted clients; it does **not** defend against a compromised scheduler process or leaked key — true distributed/TEE executor attestation is named future work. Asserted in `skillGateTest.mjs` (F1–F7: forge-without-key, valid-token, replay, tamper, stale, require-attestation, insecure-fallback).
+- **The "evidence" is semi-synthetic, not an agent trajectory.** §7's `eval_swebpro_clusters` uses **real SWE-bench Pro gold-patch structure** (which files/symbols are co-changed) to define which sub-goals are truly critical, then layers **modeled** per-step hint noise + a System2=0.9 success rate + distractor steps. The gold patch is **future information** for a real online decision; we only use its *structure*. So this proves the **mechanism** (does auto-clustering rescue weak-hint critical steps under real coupling), **not** a project `Resolve@k`. A **real agent trajectory under the official Docker pytest judge now exists at pilot scale (N = 10, §7b)** — it shows the scheduler resolving more tasks per token than both baselines, but N = 10 is not yet statistically significant; a multi-seed, larger-N run remains future work.
 - **M2 is a non-inferiority bound, not "no extra burn".** The meso-scale arm **does** spend significantly more System2 (Δ ≈ +10.3 calls, p ≈ 0) and tokens (p ≈ 0); the claim is only that this increment stays inside a **preset +10% budget bound**, not that it doesn't increase. Stated honestly throughout.
 - **μ / KKT / EMMS are an engineering interpretation, not a theorem.** The bidding/shadow-price formulation is a principled heuristic; there is **no** constrained-online-learning guarantee, no regret/violation bound, and no verifiable optimality proof yet. Deriving those is open work.
 - On a strong base model (e.g. Opus), the upstream ignition is rarely needed — the upgrade ladder already covers it. The advantage is clearest in **long-horizon / mid-task-shift / weak-model-or-expensive-token** regimes.

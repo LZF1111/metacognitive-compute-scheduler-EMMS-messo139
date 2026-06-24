@@ -9,7 +9,9 @@
   "main": "consciousCore.mjs",
   "scripts": {
     "start": "node server.mjs",
+    "start:executor": "node -e \"process.env.EMMS_EXECUTOR_ENDPOINT='1';import('./server.mjs')\"",
     "smoke": "node smoke.mjs",
+    "test:isolation": "node endpointIsolationTest.mjs",
     "complex": "node complexTask.mjs",
     "tests": "node answerTests.mjs",
     "skill-gate": "node skillGateTest.mjs",

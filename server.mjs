@@ -24,6 +24,18 @@ const log = (...a) => { try { process.stderr.write(`[conscious-mcp] ${a.join(" "
 const SERVER_INFO = { name: "conscious-scheduler", version: "0.1.0" };
 const PROTOCOL_VERSION = "2024-11-05";
 
+// ── ★Endpoint isolation (P0 attestation): issue_attestation is a PRIVILEGED minting endpoint ──
+//   It signs cryptographic trust attestations over real test results. If it sits in the same
+//   process as decision endpoints (decide_step ...) facing UNTRUSTED clients, a client could call
+//   it directly to sign its own fake result (HMAC only stops "forge without the server", not
+//   "call this endpoint"). So it is DISABLED by default and only exposed when this process is
+//   explicitly declared to run on the trusted-isolated executor side.
+//   Enable with env EMMS_EXECUTOR_ENDPOINT=1 (production should also add stdio/unix-socket isolation).
+const EXECUTOR_ENDPOINT_ENABLED =
+  process.env.EMMS_EXECUTOR_ENDPOINT === "1" || process.env.EMMS_EXECUTOR_ENDPOINT === "true";
+// Executor-only endpoints (privileged; hidden from untrusted scheduler clients).
+const EXECUTOR_ONLY_TOOLS = new Set(["issue_attestation"]);
+
 // ── 工具定义（schema 给客户端看，描述写清楚每个量怎么算）──
 const TOOLS = [
   {
@@ -200,6 +212,13 @@ const TOOLS = [
 
 // ── 工具分发 ──
 function callTool(name, args = {}) {
+  // ★Endpoint isolation: privileged minting endpoint only on trusted executor process; else reject.
+  if (EXECUTOR_ONLY_TOOLS.has(name) && !EXECUTOR_ENDPOINT_ENABLED) {
+    throw new Error(
+      `tool "${name}" is an executor-only attestation endpoint and is disabled on this scheduler server. ` +
+      `Run a separate trusted executor process with EMMS_EXECUTOR_ENDPOINT=1 to mint attestations.`
+    );
+  }
   switch (name) {
     case "open_session":
       return core.openSession(args.sessionId, args.namespace || "default", args.opts || {});
@@ -253,7 +272,12 @@ function handle(msg) {
         result = {};
         break;
       case "tools/list":
-        result = { tools: TOOLS };
+        // ★Advertise only the endpoints this process actually exposes; hide privileged minting endpoint.
+        result = {
+          tools: EXECUTOR_ENDPOINT_ENABLED
+            ? TOOLS
+            : TOOLS.filter((t) => !EXECUTOR_ONLY_TOOLS.has(t.name)),
+        };
         break;
       case "tools/call": {
         const out = callTool(params?.name, params?.arguments || {});
@@ -298,3 +322,6 @@ rl.on("line", (line) => {
 rl.on("close", () => process.exit(0));
 
 log(`started (${SERVER_INFO.name} v${SERVER_INFO.version}), ${TOOLS.length} tools, stdio JSON-RPC`);
+log(EXECUTOR_ENDPOINT_ENABLED
+  ? "mode=EXECUTOR (issue_attestation EXPOSED — run only behind trusted isolation)"
+  : "mode=SCHEDULER (issue_attestation hidden+blocked; set EMMS_EXECUTOR_ENDPOINT=1 for executor mode)");

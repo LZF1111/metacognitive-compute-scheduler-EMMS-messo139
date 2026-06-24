@@ -9,7 +9,14 @@ import { fileURLToPath } from "node:url";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const NODE = process.execPath;
-const srv = spawn(NODE, [path.join(__dir, "server.mjs")], { stdio: ["pipe", "pipe", "inherit"] });
+// ★smoke simulates BOTH the trusted executor and the scheduler side, so it needs the
+//   issue_attestation minting endpoint → start the server in EXECUTOR mode.
+//   In production the scheduler process runs in default SCHEDULER mode (endpoint hidden+blocked);
+//   a separate isolated executor process holds this mode.
+const srv = spawn(NODE, [path.join(__dir, "server.mjs")], {
+  stdio: ["pipe", "pipe", "inherit"],
+  env: { ...process.env, EMMS_EXECUTOR_ENDPOINT: "1" },
+});
 
 let buf = "";
 const pending = new Map();
